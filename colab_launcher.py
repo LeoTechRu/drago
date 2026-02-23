@@ -1,5 +1,5 @@
 # ============================
-# Ouroboros — Runtime launcher (entry point, executed from repository)
+# Drago — Runtime launcher (entry point, executed from repository)
 # ============================
 # Thin orchestrator: secrets, bootstrap, main loop.
 # Heavy logic lives in supervisor/ package.
@@ -9,6 +9,17 @@ import os, sys, json, time, uuid, pathlib, subprocess, datetime, threading, queu
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger(__name__)
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _coerce_path(name: str, default: str) -> pathlib.Path:
+    return pathlib.Path(str(os.environ.get(name, default))).resolve()
 
 # ----------------------------
 # 0) Install launcher deps
@@ -43,19 +54,39 @@ def ensure_claude_code_cli() -> bool:
 # ----------------------------
 # 0.1) provide apply_patch shim
 # ----------------------------
-from ouroboros.apply_patch import install as install_apply_patch
-from ouroboros.llm import DEFAULT_LIGHT_MODEL
+_local_bin = pathlib.Path.home() / ".local" / "bin"
+if str(_local_bin) not in os.environ.get("PATH", ""):
+    os.environ["PATH"] = f"{_local_bin}:{os.environ.get('PATH', '')}"
+
+from drago.apply_patch import install as install_apply_patch
+from drago.llm import DEFAULT_LIGHT_MODEL
 install_apply_patch()
 
 # ----------------------------
 # 1) Secrets + runtime config
 # ----------------------------
-from google.colab import userdata  # type: ignore
-from google.colab import drive  # type: ignore
+try:
+    from google.colab import userdata  # type: ignore
+    from google.colab import drive  # type: ignore
+    _HAS_COLAB_RUNTIME = True
+except Exception:
+    userdata = None
+    drive = None
+    _HAS_COLAB_RUNTIME = False
 
 _LEGACY_CFG_WARNED: Set[str] = set()
 
+
+def _legacy_var_name(name: str) -> Optional[str]:
+    if name.startswith("DRAGO_"):
+        return f"OUROBOROS_{name.removeprefix('DRAGO_')}"
+    if name.startswith("OUROBOROS_"):
+        return f"DRAGO_{name.removeprefix('OUROBOROS_')}"
+    return None
+
 def _userdata_get(name: str) -> Optional[str]:
+    if userdata is None:
+        return None
     try:
         return userdata.get(name)
     except Exception:
@@ -65,6 +96,12 @@ def get_secret(name: str, default: Optional[str] = None, required: bool = False)
     v = _userdata_get(name)
     if v is None or str(v).strip() == "":
         v = os.environ.get(name, default)
+    if v is None or str(v).strip() == "":
+        legacy_name = _legacy_var_name(name)
+        if legacy_name:
+            v = _userdata_get(legacy_name)
+            if v is None or str(v).strip() == "":
+                v = os.environ.get(legacy_name)
     if required:
         assert v is not None and str(v).strip() != "", f"Missing required secret: {name}"
     return v
@@ -73,11 +110,26 @@ def get_cfg(name: str, default: Optional[str] = None, allow_legacy_secret: bool 
     v = os.environ.get(name)
     if v is not None and str(v).strip() != "":
         return v
+    legacy = _legacy_var_name(name)
+    if legacy:
+        v = os.environ.get(legacy)
+        if v is not None and str(v).strip() != "":
+            if name not in _LEGACY_CFG_WARNED:
+                print(f"[cfg] DEPRECATED: move {legacy} to {name}.")
+                _LEGACY_CFG_WARNED.add(name)
+            return v
     if allow_legacy_secret:
         legacy = _userdata_get(name)
         if legacy is not None and str(legacy).strip() != "":
             if name not in _LEGACY_CFG_WARNED:
                 print(f"[cfg] DEPRECATED: move {name} from Colab Secrets to config cell/env.")
+                _LEGACY_CFG_WARNED.add(name)
+            return legacy
+        legacy = _userdata_get(_legacy_var_name(name) or "")
+        if legacy is not None and str(legacy).strip() != "":
+            if name not in _LEGACY_CFG_WARNED:
+                legacy_name = _legacy_var_name(name)
+                print(f"[cfg] DEPRECATED: move {legacy_name} from Colab Secrets to config cell/env.")
                 _LEGACY_CFG_WARNED.add(name)
             return legacy
     return default
@@ -90,10 +142,22 @@ def _parse_int_cfg(raw: Optional[str], default: int, minimum: int = 0) -> int:
         val = default
     return max(minimum, val)
 
-OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", required=True)
-TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN", required=True)
-TOTAL_BUDGET_DEFAULT = get_secret("TOTAL_BUDGET", required=True)
-GITHUB_TOKEN = get_secret("GITHUB_TOKEN", required=True)
+DRAGO_LOCAL_MODE = _env_bool("DRAGO_LOCAL_MODE", default=not _HAS_COLAB_RUNTIME)
+DRAGO_SKIP_GIT_BOOTSTRAP = _env_bool(
+    "DRAGO_SKIP_GIT_BOOTSTRAP",
+    default=DRAGO_LOCAL_MODE,
+)
+DRAGO_FAKE_TELEGRAM = _env_bool(
+    "DRAGO_FAKE_TELEGRAM",
+    default=DRAGO_LOCAL_MODE,
+)
+
+OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", required=not DRAGO_LOCAL_MODE)
+TOTAL_BUDGET_DEFAULT = get_secret("TOTAL_BUDGET", required=not DRAGO_LOCAL_MODE)
+GITHUB_TOKEN = get_secret("GITHUB_TOKEN", required=not DRAGO_SKIP_GIT_BOOTSTRAP)
+TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN", required=not DRAGO_FAKE_TELEGRAM)
+if DRAGO_FAKE_TELEGRAM and (TELEGRAM_BOT_TOKEN is None or str(TELEGRAM_BOT_TOKEN).strip() == ""):
+    TELEGRAM_BOT_TOKEN = "fake-token"
 
 # Robust TOTAL_BUDGET parsing — handles \r\n, spaces, and other junk from Colab Secrets
 # Example: user enters "8 800" → Colab stores as "8\r\n800" → we need 8800
@@ -112,23 +176,28 @@ OPENAI_API_KEY = get_secret("OPENAI_API_KEY", default="")
 ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY", default="")
 GITHUB_USER = get_cfg("GITHUB_USER", default=None, allow_legacy_secret=True)
 GITHUB_REPO = get_cfg("GITHUB_REPO", default=None, allow_legacy_secret=True)
-assert GITHUB_USER and str(GITHUB_USER).strip(), "GITHUB_USER not set. Add it to your config cell (see README)."
-assert GITHUB_REPO and str(GITHUB_REPO).strip(), "GITHUB_REPO not set. Add it to your config cell (see README)."
-MAX_WORKERS = int(get_cfg("OUROBOROS_MAX_WORKERS", default="5", allow_legacy_secret=True) or "5")
-MODEL_MAIN = get_cfg("OUROBOROS_MODEL", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
-MODEL_CODE = get_cfg("OUROBOROS_MODEL_CODE", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
-MODEL_LIGHT = get_cfg("OUROBOROS_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL, allow_legacy_secret=True)
+if not DRAGO_SKIP_GIT_BOOTSTRAP:
+    assert GITHUB_USER and str(GITHUB_USER).strip(), "GITHUB_USER not set. Add it to your config cell (see README)."
+    assert GITHUB_REPO and str(GITHUB_REPO).strip(), "GITHUB_REPO not set. Add it to your config cell (see README)."
+if not GITHUB_USER:
+    GITHUB_USER = "local"
+if not GITHUB_REPO:
+    GITHUB_REPO = "drago"
+MAX_WORKERS = int(get_cfg("DRAGO_MAX_WORKERS", default="5", allow_legacy_secret=True) or "5")
+MODEL_MAIN = get_cfg("DRAGO_MODEL", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
+MODEL_CODE = get_cfg("DRAGO_MODEL_CODE", default="anthropic/claude-sonnet-4.6", allow_legacy_secret=True)
+MODEL_LIGHT = get_cfg("DRAGO_MODEL_LIGHT", default=DEFAULT_LIGHT_MODEL, allow_legacy_secret=True)
 
 BUDGET_REPORT_EVERY_MESSAGES = 10
-SOFT_TIMEOUT_SEC = max(60, int(get_cfg("OUROBOROS_SOFT_TIMEOUT_SEC", default="600", allow_legacy_secret=True) or "600"))
-HARD_TIMEOUT_SEC = max(120, int(get_cfg("OUROBOROS_HARD_TIMEOUT_SEC", default="1800", allow_legacy_secret=True) or "1800"))
+SOFT_TIMEOUT_SEC = max(60, int(get_cfg("DRAGO_SOFT_TIMEOUT_SEC", default="600", allow_legacy_secret=True) or "600"))
+HARD_TIMEOUT_SEC = max(120, int(get_cfg("DRAGO_HARD_TIMEOUT_SEC", default="1800", allow_legacy_secret=True) or "1800"))
 DIAG_HEARTBEAT_SEC = _parse_int_cfg(
-    get_cfg("OUROBOROS_DIAG_HEARTBEAT_SEC", default="30", allow_legacy_secret=True),
+    get_cfg("DRAGO_DIAG_HEARTBEAT_SEC", default="30", allow_legacy_secret=True),
     default=30,
     minimum=0,
 )
 DIAG_SLOW_CYCLE_SEC = _parse_int_cfg(
-    get_cfg("OUROBOROS_DIAG_SLOW_CYCLE_SEC", default="20", allow_legacy_secret=True),
+    get_cfg("DRAGO_DIAG_SLOW_CYCLE_SEC", default="20", allow_legacy_secret=True),
     default=20,
     minimum=0,
 )
@@ -138,12 +207,12 @@ os.environ["OPENAI_API_KEY"] = str(OPENAI_API_KEY or "")
 os.environ["ANTHROPIC_API_KEY"] = str(ANTHROPIC_API_KEY or "")
 os.environ["GITHUB_USER"] = str(GITHUB_USER)
 os.environ["GITHUB_REPO"] = str(GITHUB_REPO)
-os.environ["OUROBOROS_MODEL"] = str(MODEL_MAIN or "anthropic/claude-sonnet-4.6")
-os.environ["OUROBOROS_MODEL_CODE"] = str(MODEL_CODE or "anthropic/claude-sonnet-4.6")
+os.environ["DRAGO_MODEL"] = str(MODEL_MAIN or "anthropic/claude-sonnet-4.6")
+os.environ["DRAGO_MODEL_CODE"] = str(MODEL_CODE or "anthropic/claude-sonnet-4.6")
 if MODEL_LIGHT:
-    os.environ["OUROBOROS_MODEL_LIGHT"] = str(MODEL_LIGHT)
-os.environ["OUROBOROS_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
-os.environ["OUROBOROS_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
+    os.environ["DRAGO_MODEL_LIGHT"] = str(MODEL_LIGHT)
+os.environ["DRAGO_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
+os.environ["DRAGO_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
 
 if str(ANTHROPIC_API_KEY or "").strip():
@@ -152,11 +221,29 @@ if str(ANTHROPIC_API_KEY or "").strip():
 # ----------------------------
 # 2) Mount Drive
 # ----------------------------
-if not pathlib.Path("/content/drive/MyDrive").exists():
+if not DRAGO_LOCAL_MODE and drive is not None and not pathlib.Path("/content/drive/MyDrive").exists():
     drive.mount("/content/drive")
 
-DRIVE_ROOT = pathlib.Path("/content/drive/MyDrive/Ouroboros").resolve()
-REPO_DIR = pathlib.Path("/content/ouroboros_repo").resolve()
+_legacy_drive_root = os.environ.get("OUROBOROS_DRIVE_ROOT")
+_legacy_repo_dir = os.environ.get("OUROBOROS_REPO_DIR")
+if _legacy_repo_dir and "DRAGO_REPO_DIR" not in os.environ and not DRAGO_LOCAL_MODE:
+    os.environ["DRAGO_REPO_DIR"] = _legacy_repo_dir
+if _legacy_drive_root and "DRAGO_DRIVE_ROOT" not in os.environ and not DRAGO_LOCAL_MODE:
+    os.environ["DRAGO_DRIVE_ROOT"] = _legacy_drive_root
+
+DRIVE_ROOT = _coerce_path(
+    "DRAGO_DRIVE_ROOT",
+    str(pathlib.Path(__file__).resolve().parent / ".drago_data"),
+)
+if not DRAGO_LOCAL_MODE and "DRAGO_DRIVE_ROOT" not in os.environ:
+    DRIVE_ROOT = pathlib.Path("/content/drive/MyDrive/Drago").resolve()
+
+REPO_DIR = _coerce_path(
+    "DRAGO_REPO_DIR",
+    str(pathlib.Path(__file__).resolve().parent),
+)
+if not DRAGO_LOCAL_MODE and "DRAGO_REPO_DIR" not in os.environ:
+    REPO_DIR = pathlib.Path("/content/drago_repo").resolve()
 
 for sub in ["state", "logs", "memory", "index", "locks", "archive"]:
     (DRIVE_ROOT / sub).mkdir(parents=True, exist_ok=True)
@@ -164,7 +251,7 @@ REPO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Clear stale owner mailbox files from previous session
 try:
-    from ouroboros.owner_inject import get_pending_path
+    from drago.owner_inject import get_pending_path
     # Clean legacy global file
     _stale_inject = get_pending_path(DRIVE_ROOT)
     if _stale_inject.exists():
@@ -184,9 +271,13 @@ if not CHAT_LOG_PATH.exists():
 # ----------------------------
 # 3) Git constants
 # ----------------------------
-BRANCH_DEV = "ouroboros"
-BRANCH_STABLE = "ouroboros-stable"
-REMOTE_URL = f"https://{GITHUB_TOKEN}:x-oauth-basic@github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
+BRANCH_DEV = "drago"
+BRANCH_STABLE = "drago-stable"
+REMOTE_URL = (
+    f"https://{GITHUB_TOKEN}:x-oauth-basic@github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
+    if str(GITHUB_TOKEN or "").strip()
+    else f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}.git"
+)
 
 # ----------------------------
 # 4) Initialize supervisor modules
@@ -202,7 +293,33 @@ init_state()
 from supervisor.telegram import (
     init as telegram_init, TelegramClient, send_with_budget, log_chat,
 )
-TG = TelegramClient(str(TELEGRAM_BOT_TOKEN))
+
+class _FakeTelegramClient:
+    """Minimal in-memory Telegram client for DRAGO_FAKE_TELEGRAM / local mode."""
+
+    def __init__(self, token: str):
+        self.token = str(token)
+
+    def get_updates(self, offset: int, timeout: int = 10) -> List[Dict[str, Any]]:
+        time.sleep(max(0.0, float(timeout)))
+        return []
+
+    def send_message(self, chat_id: int, text: str, parse_mode: str = "") -> Tuple[bool, str]:
+        print(f"[fake-telegram] send_message chat_id={chat_id}", file=sys.stderr)
+        return True, "ok"
+
+    def send_chat_action(self, chat_id: int, action: str = "typing") -> bool:
+        return True
+
+    def send_photo(self, chat_id: int, photo_bytes: bytes, caption: str = "") -> Tuple[bool, str]:
+        print(f"[fake-telegram] send_photo chat_id={chat_id} bytes={len(photo_bytes)}", file=sys.stderr)
+        return True, "ok"
+
+    def download_file_base64(self, file_id: str, max_bytes: int = 10_000_000) -> Tuple[Optional[str], str]:
+        return None, ""
+
+
+TG = _FakeTelegramClient(str(TELEGRAM_BOT_TOKEN)) if DRAGO_FAKE_TELEGRAM else TelegramClient(str(TELEGRAM_BOT_TOKEN))
 telegram_init(
     drive_root=DRIVE_ROOT,
     total_budget_limit=TOTAL_BUDGET_LIMIT,
@@ -242,9 +359,13 @@ from supervisor.events import dispatch_event
 # ----------------------------
 # 5) Bootstrap repo
 # ----------------------------
-ensure_repo_present()
-ok, msg = safe_restart(reason="bootstrap", unsynced_policy="rescue_and_reset")
-assert ok, f"Bootstrap failed: {msg}"
+if DRAGO_SKIP_GIT_BOOTSTRAP:
+    log.info("DRAGO_SKIP_GIT_BOOTSTRAP enabled: skipping repository bootstrap.")
+    ok, msg = True, "bootstrap skipped"
+else:
+    ensure_repo_present()
+    ok, msg = safe_restart(reason="bootstrap", unsynced_policy="rescue_and_reset")
+    assert ok, f"Bootstrap failed: {msg}"
 
 # ----------------------------
 # 6) Start workers
@@ -267,7 +388,7 @@ append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
     "max_workers": MAX_WORKERS,
     "model_default": MODEL_MAIN, "model_code": MODEL_CODE, "model_light": MODEL_LIGHT,
     "soft_timeout_sec": SOFT_TIMEOUT_SEC, "hard_timeout_sec": HARD_TIMEOUT_SEC,
-    "worker_start_method": str(os.environ.get("OUROBOROS_WORKER_START_METHOD") or ""),
+    "worker_start_method": str(os.environ.get("DRAGO_WORKER_START_METHOD") or ""),
     "diag_heartbeat_sec": DIAG_HEARTBEAT_SEC,
     "diag_slow_cycle_sec": DIAG_SLOW_CYCLE_SEC,
 })
@@ -326,7 +447,7 @@ _watchdog_thread.start()
 # ----------------------------
 # 6.3) Background consciousness
 # ----------------------------
-from ouroboros.consciousness import BackgroundConsciousness
+from drago.consciousness import BackgroundConsciousness
 
 def _get_owner_chat_id() -> Optional[int]:
     try:
@@ -547,7 +668,7 @@ while True:
             st["last_owner_message_at"] = now_iso
             save_state(st)
             log_chat("in", chat_id, user_id, text)
-            send_with_budget(chat_id, "✅ Owner registered. Ouroboros online.")
+            send_with_budget(chat_id, "✅ Owner registered. Drago online.")
             continue
 
         if user_id != int(st.get("owner_id")):
@@ -571,7 +692,7 @@ while True:
             except Exception:
                 log.warning("Supervisor command handler error", exc_info=True)
 
-        # All other messages (and dual-path commands) → direct chat with Ouroboros
+        # All other messages (and dual-path commands) → direct chat with Drago
         if not text and not image_data:
             continue  # empty message, skip
 

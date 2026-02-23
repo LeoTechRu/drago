@@ -8,7 +8,7 @@
     {
       "ts": "2026-02-11T21:47:43+00:00",
       "hash": "15560d4c",
-      "msg": "Initial Ouroboros skeleton",
+      "msg": "Initial Drago skeleton",
       "version": null,
       "py_lines": 606,
       "module_count": 2,
@@ -38,7 +38,7 @@
     {
       "ts": "2026-02-13T20:21:36+03:00",
       "hash": "6b5bc8b5",
-      "msg": "v0.2.0: Уроборос-собеседник — прямой диалог вместо очереди задач",
+      "msg": "v0.2.0: Драго-собеседник — прямой диалог вместо очереди задач",
       "version": "0.2.0",
       "py_lines": 7737,
       "module_count": 8,
@@ -238,7 +238,7 @@
     {
       "ts": "2026-02-15T00:04:32+00:00",
       "hash": "c06bd680",
-      "msg": "v2.10.0: Adaptive model selection — OUROBOROS_MODEL_LIGHT for user chat",
+      "msg": "v2.10.0: Adaptive model selection — DRAGO_MODEL_LIGHT for user chat",
       "version": "2.10.0",
       "py_lines": 5033,
       "module_count": 24,
@@ -878,7 +878,7 @@
     {
       "ts": "2026-02-17T08:40:17+00:00",
       "hash": "aed7a7c5",
-      "msg": "v4.19.0: Remove OUROBOROS_MODEL_BG hardcode, add model profiles knowledge base",
+      "msg": "v4.19.0: Remove DRAGO_MODEL_BG hardcode, add model profiles knowledge base",
       "version": "4.19.0",
       "py_lines": 9815,
       "module_count": 33,
@@ -998,7 +998,7 @@
     {
       "ts": "2026-02-17T23:44:18+03:00",
       "hash": "6be57635",
-      "msg": "v5.0.0: Merge ouroboros into main — 25 evolution cycles, major architecture upgr",
+      "msg": "v5.0.0: Merge drago into main — 25 evolution cycles, major architecture upgr",
       "version": "5.0.0",
       "py_lines": 10605,
       "module_count": 34,

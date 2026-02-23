@@ -1,5 +1,5 @@
 """
-Ouroboros — LLM client.
+Drago — LLM client.
 
 The only module that communicates with the LLM API (OpenRouter).
 Contract: chat(), default_model(), available_models(), add_usage().
@@ -44,7 +44,7 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
     Returns empty dict on failure.
     """
     import logging
-    log = logging.getLogger("ouroboros.llm")
+    log = logging.getLogger("drago.llm")
 
     try:
         import requests
@@ -122,7 +122,7 @@ class LLMClient:
                 api_key=self._api_key,
                 default_headers={
                     "HTTP-Referer": "https://colab.research.google.com/",
-                    "X-Title": "Ouroboros",
+                    "X-Title": "Drago",
                 },
             )
         return self._client
@@ -280,13 +280,13 @@ class LLMClient:
 
     def default_model(self) -> str:
         """Return the single default model from env. LLM switches via tool if needed."""
-        return os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4.6")
+        return os.environ.get("DRAGO_MODEL", "anthropic/claude-sonnet-4.6")
 
     def available_models(self) -> List[str]:
         """Return list of available models from env (for switch_model tool schema)."""
-        main = os.environ.get("OUROBOROS_MODEL", "anthropic/claude-sonnet-4.6")
-        code = os.environ.get("OUROBOROS_MODEL_CODE", "")
-        light = os.environ.get("OUROBOROS_MODEL_LIGHT", "")
+        main = os.environ.get("DRAGO_MODEL", "anthropic/claude-sonnet-4.6")
+        code = os.environ.get("DRAGO_MODEL_CODE", "")
+        light = os.environ.get("DRAGO_MODEL_LIGHT", "")
         models = [main]
         if code and code != main:
             models.append(code)

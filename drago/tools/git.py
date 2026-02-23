@@ -9,8 +9,8 @@ import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
-from ouroboros.tools.registry import ToolContext, ToolEntry
-from ouroboros.utils import utc_now_iso, write_text, safe_relpath, run_cmd
+from drago.tools.registry import ToolContext, ToolEntry
+from drago.utils import utc_now_iso, write_text, safe_relpath, run_cmd
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ def _run_pre_push_tests(ctx: ToolContext) -> Optional[str]:
         log.warning("_run_pre_push_tests called with ctx=None, skipping tests")
         return None
 
-    if os.environ.get("OUROBOROS_PRE_PUSH_TESTS", "1") != "1":
+    if os.environ.get("DRAGO_PRE_PUSH_TESTS", "1") != "1":
         return None
 
     tests_dir = pathlib.Path(ctx.repo_dir) / "tests"
@@ -226,7 +226,7 @@ def get_tools() -> List[ToolEntry]:
     return [
         ToolEntry("repo_write_commit", {
             "name": "repo_write_commit",
-            "description": "Write one file + commit + push to ouroboros branch. For small deterministic edits.",
+            "description": "Write one file + commit + push to drago branch. For small deterministic edits.",
             "parameters": {"type": "object", "properties": {
                 "path": {"type": "string"},
                 "content": {"type": "string"},

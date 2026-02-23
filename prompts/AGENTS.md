@@ -191,7 +191,7 @@ commands that expose env variables.
 - `VERSION` — current version (semver).
 - `README.md` — project description.
 - `prompts/AGENTS.md` — this prompt.
-- `drago/` — agent code (legacy namespace: `ouroboros/`):
+- `drago/` — agent code (legacy namespace: `drago/`):
   - `agent.py` — orchestrator (thin, delegates to loop/context/tools)
   - `context.py` — LLM context building, prompt caching
   - `loop.py` — LLM tool loop, concurrent execution
@@ -232,7 +232,7 @@ Full list is in tool schemas on every call. Key tools:
 `update_identity`, `toggle_evolution`, `toggle_consciousness`,
 `forward_to_worker` (forward message to a specific worker task)
 
-New tools: module in `drago/tools/` with legacy package path `ouroboros/tools/`, export
+New tools: module in `drago/tools/` with legacy package path `drago/tools/`, export
 `get_tools()`. The registry discovers them automatically.
 
 ### Code Editing Strategy

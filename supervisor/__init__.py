@@ -1,1 +1,1 @@
-"""Ouroboros Supervisor package — decomposed from monolithic colab_launcher.py."""
+"""Drago Supervisor package — decomposed from monolithic colab_launcher.py."""

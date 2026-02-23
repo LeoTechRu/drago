@@ -1,13 +1,17 @@
 """
 Apply-patch shim for Claude Code CLI.
-Writes apply_patch script to /usr/local/bin/ on import.
+Writes apply_patch script to a writable location.
 
 Supports: *** Update File, *** Add File, *** Delete File, *** End of File.
 """
 import pathlib
+import typing
 
 
-APPLY_PATCH_PATH = pathlib.Path("/usr/local/bin/apply_patch")
+APPLY_PATCH_PATHS = (
+    pathlib.Path("/usr/local/bin") / "apply_patch",
+    pathlib.Path.home() / ".local" / "bin" / "apply_patch",
+)
 APPLY_PATCH_CODE = r"""#!/usr/bin/env python3
 import os
 import sys
@@ -172,7 +176,16 @@ if __name__ == "__main__":
 
 
 def install():
-    """Install apply_patch script to /usr/local/bin/."""
-    APPLY_PATCH_PATH.parent.mkdir(parents=True, exist_ok=True)
-    APPLY_PATCH_PATH.write_text(APPLY_PATCH_CODE, encoding="utf-8")
-    APPLY_PATCH_PATH.chmod(0o755)
+    """Install apply_patch script to a writable location."""
+    last_error: typing.Optional[Exception] = None
+    for path in APPLY_PATCH_PATHS:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(APPLY_PATCH_CODE, encoding="utf-8")
+            path.chmod(0o755)
+            return path
+        except Exception as e:
+            last_error = e
+    if last_error is not None:
+        print(f"[apply_patch] install skipped: cannot write script: {last_error}")
+    return None

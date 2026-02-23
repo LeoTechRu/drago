@@ -1,5 +1,5 @@
 """
-Ouroboros agent core — thin orchestrator.
+Drago agent core — thin orchestrator.
 
 Delegates to: loop.py (LLM tool loop), tools/ (tool schemas/execution),
 llm.py (LLM calls), memory.py (scratchpad/identity),
@@ -21,17 +21,17 @@ from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
-from ouroboros.utils import (
+from drago.utils import (
     utc_now_iso, read_text, append_jsonl,
     safe_relpath, truncate_for_log,
     get_git_info, sanitize_task_for_event,
 )
-from ouroboros.llm import LLMClient, add_usage
-from ouroboros.tools import ToolRegistry
-from ouroboros.tools.registry import ToolContext
-from ouroboros.memory import Memory
-from ouroboros.context import build_llm_messages
-from ouroboros.loop import run_llm_loop
+from drago.llm import LLMClient, add_usage
+from drago.tools import ToolRegistry
+from drago.tools.registry import ToolContext
+from drago.memory import Memory
+from drago.context import build_llm_messages
+from drago.loop import run_llm_loop
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ _worker_boot_lock = threading.Lock()
 class Env:
     repo_dir: pathlib.Path
     drive_root: pathlib.Path
-    branch_dev: str = "ouroboros"
+    branch_dev: str = "drago"
 
     def repo_path(self, rel: str) -> pathlib.Path:
         return (self.repo_dir / safe_relpath(rel)).resolve()
@@ -62,7 +62,7 @@ class Env:
 # Agent
 # ---------------------------------------------------------------------------
 
-class OuroborosAgent:
+class DragoAgent:
     """One agent instance per worker process. Mostly stateless; long-term state lives on Drive."""
 
     def __init__(self, env: Env, event_queue: Any = None):
@@ -447,7 +447,7 @@ class OuroborosAgent:
             self._busy = False
             # Clean up browser if it was used during this task
             try:
-                from ouroboros.tools.browser import cleanup_browser
+                from drago.tools.browser import cleanup_browser
                 cleanup_browser(self.tools._ctx)
             except Exception:
                 log.debug("Failed to cleanup browser", exc_info=True)
@@ -560,7 +560,7 @@ class OuroborosAgent:
     def _build_review_context(self) -> str:
         """Collect code snapshot + complexity metrics for review tasks."""
         try:
-            from ouroboros.review import collect_sections, compute_complexity_metrics, format_metrics
+            from drago.review import collect_sections, compute_complexity_metrics, format_metrics
             sections, stats = collect_sections(self.env.repo_dir, self.env.drive_root)
             metrics = compute_complexity_metrics(sections)
 
@@ -650,6 +650,6 @@ class OuroborosAgent:
 # Factory
 # ---------------------------------------------------------------------------
 
-def make_agent(repo_dir: str, drive_root: str, event_queue: Any = None) -> OuroborosAgent:
+def make_agent(repo_dir: str, drive_root: str, event_queue: Any = None) -> DragoAgent:
     env = Env(repo_dir=pathlib.Path(repo_dir), drive_root=pathlib.Path(drive_root))
-    return OuroborosAgent(env, event_queue=event_queue)
+    return DragoAgent(env, event_queue=event_queue)

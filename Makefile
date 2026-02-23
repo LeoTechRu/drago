@@ -1,4 +1,4 @@
-# Ouroboros — common development commands
+# Drago — common development commands
 # Usage: make test, make lint, make health
 
 .PHONY: test lint health clean
@@ -11,9 +11,9 @@ test:
 test-v:
 	python3 -m pytest tests/ -v --tb=long
 
-# Run codebase health check (requires ouroboros importable)
+# Run codebase health check (requires drago importable)
 health:
-	python3 -c "from ouroboros.review import compute_complexity_metrics; \
+	python3 -c "from drago.review import compute_complexity_metrics; \
 		import pathlib, json; \
 		m = compute_complexity_metrics(pathlib.Path('.')); \
 		print(json.dumps(m, indent=2, default=str))"

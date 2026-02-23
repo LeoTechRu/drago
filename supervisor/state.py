@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Module-level config (set via init())
 # ---------------------------------------------------------------------------
-DRIVE_ROOT: pathlib.Path = pathlib.Path("/content/drive/MyDrive/Ouroboros")
+DRIVE_ROOT: pathlib.Path = pathlib.Path("/content/drive/MyDrive/Drago")
 STATE_PATH: pathlib.Path = DRIVE_ROOT / "state" / "state.json"
 STATE_LAST_GOOD_PATH: pathlib.Path = DRIVE_ROOT / "state" / "state.last_good.json"
 STATE_LOCK_PATH: pathlib.Path = DRIVE_ROOT / "locks" / "state.lock"
@@ -115,8 +115,8 @@ def release_file_lock(lock_path: pathlib.Path, lock_fd: Optional[int]) -> None:
         pass
 
 
-# Re-export append_jsonl from ouroboros.utils (single source of truth)
-from ouroboros.utils import append_jsonl  # noqa: F401
+# Re-export append_jsonl from drago.utils (single source of truth)
+from drago.utils import append_jsonl  # noqa: F401
 
 
 # ---------------------------------------------------------------------------

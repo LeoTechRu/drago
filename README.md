@@ -101,7 +101,7 @@ Telegram --> colab_launcher.py
 Инстанс используется в проде для `ООО Пункт Б` (`/git/punctb`), поэтому режим работы по умолчанию для вас — экономичный и безопасный для ресурса:
 
 - не запускайте фоновое потребление на максимум без надобности;
-- для экономии оставьте `OUROBOROS_MAX_WORKERS` на умеренном значении;
+- для экономии оставьте `DRAGO_MAX_WORKERS` на умеренном значении;
 - не включайте долгие/повторяющиеся циклы без необходимости;
 - не делайте массовые проходы по всем репозиториям, пока это не требуется для задачи.
 
@@ -123,16 +123,16 @@ CFG = {
     "GITHUB_USER": "YOUR_GITHUB_USERNAME",                       # <-- CHANGE THIS
     "GITHUB_REPO": "drago",                                      # <-- repo name (after fork)
     # Models
-    "OUROBOROS_MODEL": "anthropic/claude-sonnet-4.6",            # primary LLM (via OpenRouter)
-    "OUROBOROS_MODEL_CODE": "anthropic/claude-sonnet-4.6",       # code editing (Claude Code CLI)
-    "OUROBOROS_MODEL_LIGHT": "google/gemini-3-pro-preview",      # consciousness + lightweight tasks
-    "OUROBOROS_WEBSEARCH_MODEL": "gpt-5",                        # web search (OpenAI Responses API)
+    "DRAGO_MODEL": "anthropic/claude-sonnet-4.6",            # primary LLM (via OpenRouter)
+    "DRAGO_MODEL_CODE": "anthropic/claude-sonnet-4.6",       # code editing (Claude Code CLI)
+    "DRAGO_MODEL_LIGHT": "google/gemini-3-pro-preview",      # consciousness + lightweight tasks
+    "DRAGO_WEBSEARCH_MODEL": "gpt-5",                        # web search (OpenAI Responses API)
     # Fallback chain (first model != active will be used on empty response)
-    "OUROBOROS_MODEL_FALLBACK_LIST": "anthropic/claude-sonnet-4.6,google/gemini-3-pro-preview,openai/gpt-4.1",
+    "DRAGO_MODEL_FALLBACK_LIST": "google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6",
     # Infrastructure
-    "OUROBOROS_MAX_WORKERS": "5",
-    "OUROBOROS_MAX_ROUNDS": "200",                               # max LLM rounds per task
-    "OUROBOROS_BG_BUDGET_PCT": "10",                             # % of budget for background consciousness
+    "DRAGO_MAX_WORKERS": "5",
+    "DRAGO_MAX_ROUNDS": "200",                               # max LLM rounds per task
+    "DRAGO_BG_BUDGET_PCT": "10",                             # % of budget for background consciousness
 }
 for k, v in CFG.items():
     os.environ[k] = str(v)
@@ -218,14 +218,14 @@ Full text: [BIBLE.md](BIBLE.md)
 |----------|---------|-------------|
 | `GITHUB_USER` | *(required in config cell)* | GitHub username |
 | `GITHUB_REPO` | `drago` | GitHub repository name |
-| `OUROBOROS_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model (via OpenRouter) |
-| `OUROBOROS_MODEL_CODE` | `anthropic/claude-sonnet-4.6` | Model for code editing tasks |
-| `OUROBOROS_MODEL_LIGHT` | `google/gemini-3-pro-preview` | Model for lightweight tasks (dedup, compaction) |
-| `OUROBOROS_WEBSEARCH_MODEL` | `gpt-5` | Model for web search (OpenAI Responses API) |
-| `OUROBOROS_MAX_WORKERS` | `5` | Maximum number of parallel worker processes |
-| `OUROBOROS_BG_BUDGET_PCT` | `10` | Percentage of total budget allocated to background consciousness |
-| `OUROBOROS_MAX_ROUNDS` | `200` | Maximum LLM rounds per task |
-| `OUROBOROS_MODEL_FALLBACK_LIST` | `google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
+| `DRAGO_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model (via OpenRouter) |
+| `DRAGO_MODEL_CODE` | `anthropic/claude-sonnet-4.6` | Model for code editing tasks |
+| `DRAGO_MODEL_LIGHT` | `google/gemini-3-pro-preview` | Model for lightweight tasks (dedup, compaction) |
+| `DRAGO_WEBSEARCH_MODEL` | `gpt-5` | Model for web search (OpenAI Responses API) |
+| `DRAGO_MAX_WORKERS` | `5` | Maximum number of parallel worker processes |
+| `DRAGO_BG_BUDGET_PCT` | `10` | Percentage of total budget allocated to background consciousness |
+| `DRAGO_MAX_ROUNDS` | `200` | Maximum LLM rounds per task |
+| `DRAGO_MODEL_FALLBACK_LIST` | `google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
 
 ---
 
@@ -251,7 +251,7 @@ Full text: [BIBLE.md](BIBLE.md)
 - **Fix: worker_id==0 hard-timeout bug** -- `int(x or -1)` treated worker 0 as -1, preventing terminate on timeout and causing double task execution. Replaced all `x or default` patterns with None-safe checks.
 - **Fix: double budget accounting** -- per-task aggregate `llm_usage` event removed; per-round events already track correctly. Eliminates ~2x budget drift.
 - **Fix: compact_context tool** -- handler had wrong signature (missing ctx param), making it always error. Now works correctly.
-- **LLM-first task dedup** -- replaced hardcoded keyword-similarity dedup (Bible P3 violation) with light LLM call via OUROBOROS_MODEL_LIGHT. Catches paraphrased duplicates.
+- **LLM-first task dedup** -- replaced hardcoded keyword-similarity dedup (Bible P3 violation) with light LLM call via DRAGO_MODEL_LIGHT. Catches paraphrased duplicates.
 - **LLM-driven context compaction** -- compact_context tool now uses light model to summarize old tool results instead of simple truncation.
 - **Fix: health invariant #5** -- `owner_message_injected` events now properly logged to events.jsonl for duplicate processing detection.
 - **Fix: shell cmd parsing** -- `str.split()` replaced with `shlex.split()` for proper shell quoting support.
@@ -276,7 +276,7 @@ Full text: [BIBLE.md](BIBLE.md)
 - **ThreadPoolExecutor deadlock fix**: replaced `with` context manager with explicit `shutdown(wait=False, cancel_futures=True)` for both single and parallel tool execution.
 - **Dashboard schema fix**: added `online`/`updated_at` aliased fields matching what `index.html` expects.
 - **BG consciousness spending**: now written to global `state.json` (was memory-only, invisible to budget tracking).
-- **Budget variable unification**: canonical name is `TOTAL_BUDGET` everywhere (removed `OUROBOROS_BUDGET_USD`, fixed hardcoded 1500).
+- **Budget variable unification**: canonical name is `TOTAL_BUDGET` everywhere (removed `DRAGO_BUDGET_USD`, fixed hardcoded 1500).
 - **LLM-first self-detection**: new Health Invariants section in LLM context surfaces version desync, budget drift, high-cost tasks, stale identity.
 - **AGENTS.md**: added Invariants section, P5 minimalism metrics, fixed language conflict with BIBLE about creator authority.
 - Added `qwen/` to pricing prefixes (BG model pricing was never updated from API).
@@ -350,7 +350,7 @@ Full text: [BIBLE.md](BIBLE.md)
 ### v5.0.1 -- Quality & Integrity Fix
 - Fixed 9 bugs: executor leak, dashboard field mismatches, budget default inconsistency, dead code, race condition, pricing fetch gap, review file count, SHA verify timeout, log message copy-paste.
 - Bible P7: version sync check now includes README.md.
-- Bible P3: fallback model list configurable via OUROBOROS_MODEL_FALLBACK_LIST env var.
+- Bible P3: fallback model list configurable via DRAGO_MODEL_FALLBACK_LIST env var.
 - Dashboard values now dynamic (model, tests, tools, uptime, consciousness).
 - Merged duplicate state dict definitions (single source of truth).
 - Unified TOTAL_BUDGET default to $1 across all modules.

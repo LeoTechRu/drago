@@ -1,5 +1,5 @@
 """
-Ouroboros context builder.
+Drago context builder.
 
 Assembles LLM context from prompts, memory, logs, and runtime state.
 Extracted from agent.py to keep the agent thin and focused.
@@ -14,10 +14,10 @@ import os
 import pathlib
 from typing import Any, Dict, List, Optional, Tuple
 
-from ouroboros.utils import (
+from drago.utils import (
     utc_now_iso, read_text, clip_text, estimate_tokens, get_git_info,
 )
-from ouroboros.memory import Memory
+from drago.memory import Memory
 
 log = logging.getLogger(__name__)
 
@@ -303,7 +303,7 @@ def build_llm_messages(
     # --- Read base prompts and state ---
     base_prompt = _safe_read(
         env.repo_path("prompts/AGENTS.md"),
-        fallback="You are Ouroboros. Your base prompt could not be loaded."
+        fallback="You are Drago. Your base prompt could not be loaded."
     )
     bible_md = _safe_read(env.repo_path("BIBLE.md"))
     readme_md = _safe_read(env.repo_path("README.md"))
@@ -645,8 +645,8 @@ def compact_tool_history_llm(messages: list, keep_recent: int = 6) -> list:
     )
 
     try:
-        from ouroboros.llm import LLMClient, DEFAULT_LIGHT_MODEL
-        light_model = os.environ.get("OUROBOROS_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL
+        from drago.llm import LLMClient, DEFAULT_LIGHT_MODEL
+        light_model = os.environ.get("DRAGO_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL
         client = LLMClient()
         resp_msg, _usage = client.chat(
             messages=[{"role": "user", "content": prompt}],
