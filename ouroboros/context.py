@@ -302,7 +302,7 @@ def build_llm_messages(
 
     # --- Read base prompts and state ---
     base_prompt = _safe_read(
-        env.repo_path("prompts/SYSTEM.md"),
+        env.repo_path("prompts/AGENTS.md"),
         fallback="You are Ouroboros. Your base prompt could not be loaded."
     )
     bible_md = _safe_read(env.repo_path("BIBLE.md"))
@@ -313,7 +313,7 @@ def build_llm_messages(
     memory.ensure_files()
 
     # --- Assemble messages with 3-block prompt caching ---
-    # Block 1: Static content (SYSTEM.md + BIBLE.md + README) — cached
+    # Block 1: Static content (AGENTS.md + BIBLE.md + README) — cached
     # Block 2: Semi-stable content (identity + scratchpad + knowledge) — cached
     # Block 3: Dynamic content (state + runtime + recent logs) — uncached
 

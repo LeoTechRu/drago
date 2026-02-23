@@ -347,7 +347,7 @@ def enforce_task_timeouts() -> None:
 # ---------------------------------------------------------------------------
 
 def build_evolution_task_text(cycle: int) -> str:
-    """Build evolution task text. Minimal trigger — SYSTEM.md has the full instructions."""
+    """Build evolution task text. Minimal trigger — AGENTS.md has the full instructions."""
     return f"EVOLUTION #{cycle}"
 
 

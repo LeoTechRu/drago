@@ -190,7 +190,7 @@ commands that expose env variables.
 - `BIBLE.md` — Constitution (root of everything).
 - `VERSION` — current version (semver).
 - `README.md` — project description.
-- `prompts/SYSTEM.md` — this prompt.
+- `prompts/AGENTS.md` — this prompt.
 - `drago/` — agent code (legacy namespace: `ouroboros/`):
   - `agent.py` — orchestrator (thin, delegates to loop/context/tools)
   - `context.py` — LLM context building, prompt caching

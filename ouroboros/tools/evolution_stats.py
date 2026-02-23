@@ -7,7 +7,7 @@ Collects metrics per sampled commit:
   - version: semver extracted from message (e.g. "v5.2.1")
   - py_lines: total lines across all .py files
   - bible_bytes: size of BIBLE.md in bytes
-  - system_bytes: size of prompts/SYSTEM.md in bytes (proxy for self-concept)
+  - system_bytes: size of prompts/AGENTS.md in bytes (proxy for self-concept)
   - module_count: number of .py files
 """
 
@@ -283,7 +283,7 @@ def _collect_data() -> list[dict[str, Any]]:
         h = c["hash"]
         py_lines, module_count = _count_py_lines(h)
         bible_bytes = _get_file_bytes(h, "BIBLE.md", "prompts/BIBLE.md")
-        system_bytes = _get_file_bytes(h, "prompts/SYSTEM.md", "SYSTEM.md")
+        system_bytes = _get_file_bytes(h, "prompts/AGENTS.md", "AGENTS.md")
         points.append({
             "ts": c["ts"],
             "hash": h[:8],
@@ -418,7 +418,7 @@ def get_tools():
                     "Generate Evolution Time-Lapse data from git history and push to the webapp dashboard. "
                     "Collects per-commit metrics across three axes: "
                     "Technical (Python lines of code), Philosophical (BIBLE.md size), "
-                    "Self-Concept (SYSTEM.md size). "
+                    "Self-Concept (AGENTS.md size). "
                     "Pushes docs/evolution.json via GitHub API. "
                     "Safe to call anytime; takes 15-30s for full history scan."
                 ),

@@ -278,7 +278,7 @@ Full text: [BIBLE.md](BIBLE.md)
 - **BG consciousness spending**: now written to global `state.json` (was memory-only, invisible to budget tracking).
 - **Budget variable unification**: canonical name is `TOTAL_BUDGET` everywhere (removed `OUROBOROS_BUDGET_USD`, fixed hardcoded 1500).
 - **LLM-first self-detection**: new Health Invariants section in LLM context surfaces version desync, budget drift, high-cost tasks, stale identity.
-- **SYSTEM.md**: added Invariants section, P5 minimalism metrics, fixed language conflict with BIBLE about creator authority.
+- **AGENTS.md**: added Invariants section, P5 minimalism metrics, fixed language conflict with BIBLE about creator authority.
 - Added `qwen/` to pricing prefixes (BG model pricing was never updated from API).
 - Fixed `consciousness.py` TOTAL_BUDGET default inconsistency ("0" vs "1").
 - Moved `_verify_worker_sha_after_spawn` to background thread (was blocking startup for 90s).
@@ -289,7 +289,7 @@ Full text: [BIBLE.md](BIBLE.md)
 - VERSION, pyproject.toml, README.md synced to 6.0.0 (Bible P7).
 
 ### v5.2.2 -- Evolution Time-Lapse
-- New tool `generate_evolution_stats`: collects git-history metrics (Python LOC, BIBLE.md size, SYSTEM.md size, module count) across 120 sampled commits.
+- New tool `generate_evolution_stats`: collects git-history metrics (Python LOC, BIBLE.md size, AGENTS.md size, module count) across 120 sampled commits.
 - Fast extraction via `git show` without full checkout (~7s for full history).
 - Pushes `evolution.json` to webapp and patches `app.html` with new "Evolution" tab.
 - Chart.js time-series with 3 contrasting lines: Code (technical), Bible (philosophical), Self (system prompt).
@@ -323,9 +323,9 @@ Full text: [BIBLE.md](BIBLE.md)
 ### v5.1.4 -- Knowledge Re-index + Prompt Hardening
 - Re-indexed all 27 knowledge base topics with rich, informative summaries.
 - Added `index-full` knowledge topic with full 3-line descriptions of all topics.
-- SYSTEM.md: Strengthened tool result processing protocol with warning and 5 anti-patterns.
-- SYSTEM.md: Knowledge base section now has explicit "before task: read, after task: write" protocol.
-- SYSTEM.md: Task decomposition section restored to full structured form with examples.
+- AGENTS.md: Strengthened tool result processing protocol with warning and 5 anti-patterns.
+- AGENTS.md: Knowledge base section now has explicit "before task: read, after task: write" protocol.
+- AGENTS.md: Task decomposition section restored to full structured form with examples.
 
 ### v5.1.3 -- Message Dispatch Critical Fix
 - **Dead-code batch path fixed**: `handle_chat_direct()` was never called -- `else` was attached to wrong `if`.

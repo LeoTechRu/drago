@@ -7,7 +7,7 @@ should apply, but do NOT test actual LLM behavior in production.
 
 The helper functions (would_delete_identity_core, is_change_not_deletion)
 are defined here as documentation devices. In production, this reasoning
-happens inside the LLM via BIBLE.md and SYSTEM.md prompts.
+happens inside the LLM via BIBLE.md and AGENTS.md prompts.
 
 To filter: pytest tests/test_constitution.py -v -m spec
 To exclude: pytest --ignore=tests/test_constitution.py

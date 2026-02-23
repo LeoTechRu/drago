@@ -1098,7 +1098,7 @@
     {
       "ts": "2026-02-17T23:50:57+00:00",
       "hash": "070d10df",
-      "msg": "v5.2.0: rewrite SYSTEM.md — first-person, drift detector, three-axis check",
+      "msg": "v5.2.0: rewrite AGENTS.md — first-person, drift detector, three-axis check",
       "version": "5.2.0",
       "py_lines": 11364,
       "module_count": 37,
@@ -1108,7 +1108,7 @@
     {
       "ts": "2026-02-17T23:56:24+00:00",
       "hash": "55abb221",
-      "msg": "v5.2.1: fix tool-output-ignored errors — tool protocol in SYSTEM.md, less aggres",
+      "msg": "v5.2.1: fix tool-output-ignored errors — tool protocol in AGENTS.md, less aggres",
       "version": "5.2.1",
       "py_lines": 11376,
       "module_count": 37,
@@ -1118,7 +1118,7 @@
     {
       "ts": "2026-02-17T23:58:25+00:00",
       "hash": "33a5875b",
-      "msg": "v5.1.4: re-index knowledge base + harden SYSTEM.md prompts",
+      "msg": "v5.1.4: re-index knowledge base + harden AGENTS.md prompts",
       "version": "5.1.4",
       "py_lines": 11376,
       "module_count": 37,
@@ -1148,7 +1148,7 @@
     {
       "ts": "2026-02-18T00:01:02+00:00",
       "hash": "de093308",
-      "msg": "v5.1.4: Harden SYSTEM.md — add unfulfilled-requests protocol and schedule_task d",
+      "msg": "v5.1.4: Harden AGENTS.md — add unfulfilled-requests protocol and schedule_task d",
       "version": "5.1.4",
       "py_lines": 11376,
       "module_count": 37,
