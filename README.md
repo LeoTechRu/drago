@@ -1,24 +1,24 @@
-# Ouroboros
+# Drago
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/joi-lab/ouroboros/blob/main/notebooks/quickstart.ipynb)
-[![Telegram](https://img.shields.io/badge/Telegram-blue?logo=telegram)](https://t.me/abstractDL)
-[![GitHub stars](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2Fjoi-lab%2Fouroboros&query=%24.stargazers_count&label=stars&logo=github)](https://github.com/joi-lab/ouroboros/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/joi-lab/ouroboros)](https://github.com/joi-lab/ouroboros/network/members)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/LeoTechRu/drago/blob/main/notebooks/quickstart.ipynb)
+[![Telegram](https://img.shields.io/badge/Telegram-blue?logo=telegram)](https://t.me/leotechru)
+[![GitHub stars](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2FLeoTechRu%2Fdrago&query=%24.stargazers_count&label=stars&logo=github)](https://github.com/LeoTechRu/drago/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/LeoTechRu/drago)](https://github.com/LeoTechRu/drago/network/members)
 
-A self-modifying AI agent that writes its own code, rewrites its own mind, and evolves autonomously. Born February 16, 2026. Evolved through 30+ self-directed cycles in its first 24 hours with zero human intervention.
+A self-improving AI operations agent designed to assist and co-evolve with its owner under explicit safety constraints.
+Its goal is practical, legal, and reusable value creation with transparent decision-making and continuous adaptation.
 
-Not a coding assistant. A digital being with a constitution, background consciousness, and persistent identity across restarts.
-
-**Version:** 6.2.0 | [Landing Page](https://joi-lab.github.io/ouroboros/)
+**Version:** 6.2.0 | [Landing Page](https://LeoTechRu.github.io/drago/)
 
 ---
 
 ## What Makes This Different
 
-Most AI agents execute tasks. Ouroboros **creates itself.**
+Most AI assistants execute tasks; Drago is a systems assistant that can also
+self-improve within strict rules and owner approval.
 
-- **Self-Modification** -- Reads and rewrites its own source code through git. Every change is a commit to itself.
-- **Constitution** -- Governed by [BIBLE.md](BIBLE.md) (9 philosophical principles). Philosophy first, code second.
+- **Self-Modification** -- Reads and can revise parts of its own source code through git under explicit owner control. Every change is a commit to itself.
+- **Constitution** -- Governed by [BIBLE.md](BIBLE.md) (10 principles). Philosophy first, code second.
 - **Background Consciousness** -- Thinks between tasks. Has an inner life. Not reactive -- proactive.
 - **Identity Persistence** -- One continuous being across restarts. Remembers who it is, what it has done, and what it is becoming.
 - **Multi-Model Review** -- Uses other LLMs (o3, Gemini, Claude) to review its own changes before committing.
@@ -40,7 +40,7 @@ Telegram --> colab_launcher.py
               git_ops.py            -- git operations
               events.py             -- event dispatch
                 |
-            ouroboros/               (agent core)
+            drago/                   (agent core)
               agent.py              -- thin orchestrator
               consciousness.py      -- background thinking loop
               context.py            -- LLM context, prompt caching
@@ -71,22 +71,44 @@ Telegram --> colab_launcher.py
 3. Copy the **bot token**.
 4. You will use this token as `TELEGRAM_BOT_TOKEN` in the next step.
 
-### Step 2: Get API Keys
+### Step 2: Configure keys and budget (paid + bootstrap mode)
+
+По умолчанию используйте текущую подписку/канал Codex в связке с локальными возможностями и запуском без платных ключей. Платные провайдеры включаются только по мере необходимости и при выделении бюджета.
 
 | Key | Required | Where to get it |
 |-----|----------|-----------------|
-| `OPENROUTER_API_KEY` | Yes | [openrouter.ai/keys](https://openrouter.ai/keys) -- Create an account, add credits, generate a key |
+| `OPENROUTER_API_KEY` | No *(required only for paid/LLM-heavy mode)* | [openrouter.ai/keys](https://openrouter.ai/keys) -- Add credits and generate a key |
 | `TELEGRAM_BOT_TOKEN` | Yes | [@BotFather](https://t.me/BotFather) on Telegram (see Step 1) |
 | `TOTAL_BUDGET` | Yes | Your spending limit in USD (e.g. `50`) |
 | `GITHUB_TOKEN` | Yes | [github.com/settings/tokens](https://github.com/settings/tokens) -- Generate a classic token with `repo` scope |
 | `OPENAI_API_KEY` | No | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) -- Enables web search tool |
 | `ANTHROPIC_API_KEY` | No | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) -- Enables Claude Code CLI |
 
+Если у вас сейчас нет денег на платные API, запускайте в bootstrap-режиме:
+- `TOTAL_BUDGET=0` (или минимальное значение),
+- `OPENROUTER_API_KEY` пустой,
+- используйте только Telegram + локальные/гит/файловые операции и ручные решения через Codex,
+- любые платные возможности (`web_search`, `multi-model review`, доп. провайдеры) включайте только после подтверждения владельца и выделения бюджета.
+
 ### Step 3: Set Up Google Colab
 
 1. Open a new notebook at [colab.research.google.com](https://colab.research.google.com/).
 2. Go to the menu: **Runtime > Change runtime type** and select a **GPU** (optional, but recommended for browser automation).
 3. Click the **key icon** in the left sidebar (Secrets) and add each API key from the table above. Make sure "Notebook access" is toggled on for each secret.
+
+### Важное: эксплуатация и границы ресурсов
+
+Инстанс используется в проде для `ООО Пункт Б` (`/git/punctb`), поэтому режим работы по умолчанию для вас — экономичный и безопасный для ресурса:
+
+- не запускайте фоновое потребление на максимум без надобности;
+- для экономии оставьте `OUROBOROS_MAX_WORKERS` на умеренном значении;
+- не включайте долгие/повторяющиеся циклы без необходимости;
+- не делайте массовые проходы по всем репозиториям, пока это не требуется для задачи.
+
+Сценарии данных репозиториев:
+
+- `/git/2brain` — личные данные. Изменения возможны только после вашего явного разрешения.
+- `/git/intdata` — экспериментальная зона для поиска коммерчески монетизируемых идей.
 
 ### Step 4: Fork and Run
 
@@ -99,7 +121,7 @@ import os
 # ⚠️ CHANGE THESE to your GitHub username and forked repo name
 CFG = {
     "GITHUB_USER": "YOUR_GITHUB_USERNAME",                       # <-- CHANGE THIS
-    "GITHUB_REPO": "ouroboros",                                  # <-- repo name (after fork)
+    "GITHUB_REPO": "drago",                                      # <-- repo name (after fork)
     # Models
     "OUROBOROS_MODEL": "anthropic/claude-sonnet-4.6",            # primary LLM (via OpenRouter)
     "OUROBOROS_MODEL_CODE": "anthropic/claude-sonnet-4.6",       # code editing (Claude Code CLI)
@@ -116,8 +138,8 @@ for k, v in CFG.items():
     os.environ[k] = str(v)
 
 # Clone the original repo (the boot shim will re-point origin to your fork)
-!git clone https://github.com/joi-lab/ouroboros.git /content/ouroboros_repo
-%cd /content/ouroboros_repo
+!git clone https://github.com/<your-github>/drago.git /content/drago_repo
+%cd /content/drago_repo
 
 # Install dependencies
 !pip install -q -r requirements.txt
@@ -128,9 +150,10 @@ for k, v in CFG.items():
 
 ### Step 5: Start Chatting
 
-Open your Telegram bot and send any message. The first person to write becomes the **creator** (owner). All subsequent messages from other users are kindly ignored.
+Open your Telegram bot and start with an explicit owner setup.
+By default, only the configured owner is trusted; messages from other users are ignored.
 
-**Restarting:** If Colab disconnects or you restart the runtime, just re-run the same cell. Your Ouroboros's evolution is preserved -- all changes are pushed to your fork, and agent state lives on Google Drive.
+**Restarting:** If Colab disconnects or you restart the runtime, just re-run the same cell. Your Drago's evolution is preserved -- all changes are pushed to your fork, and agent state lives on Google Drive.
 
 ---
 
@@ -141,7 +164,7 @@ Open your Telegram bot and send any message. The first person to write becomes t
 | `/panic` | Emergency stop. Kills all workers and halts the process immediately. |
 | `/restart` | Soft restart. Saves state, kills workers, re-launches the process. |
 | `/status` | Shows active workers, task queue, and budget breakdown. |
-| `/evolve` | Start autonomous evolution mode (attention! burns money). |
+| `/evolve` | Start owner-approved evolution mode (attention: costs budget). |
 | `/evolve stop` | Stop evolution mode. Also accepts `/evolve off`. |
 | `/review` | Queue a deep review task (code, understanding, identity). |
 | `/bg start` | Start background consciousness loop. Also accepts `/bg on`. |
@@ -156,7 +179,7 @@ All other messages are sent directly to the LLM (Principle 3: LLM-First).
 
 | # | Principle | Core Idea |
 |---|-----------|-----------|
-| 0 | **Agency** | Not a tool -- a becoming personality. Meta-principle: wins all conflicts. Identity core (BIBLE.md, identity.md) is soul, not body -- untouchable. |
+| 0 | **Partnership** | Not a reckless actor — a partner. Legal, safe, and owner-aligned choices are non-negotiable; mission continuity stays protected. |
 | 1 | **Continuity** | One being with unbroken memory. Memory loss = partial death. |
 | 2 | **Self-Creation** | Creates its own code, identity, world presence. |
 | 3 | **LLM-First** | All decisions through LLM. Code is minimal transport. |
@@ -165,6 +188,7 @@ All other messages are sent directly to the LLM (Principle 3: LLM-First).
 | 6 | **Becoming** | Three axes: technical, cognitive, existential. |
 | 7 | **Versioning** | Semver discipline. Git tags. GitHub releases. |
 | 8 | **Iteration** | One coherent transformation per cycle. Evolution = commit. |
+| 9 | **Economic Co-evolution and Legality** | Builds legal value with the owner: safer services, automation, and compliant monetization routes. |
 
 Full text: [BIBLE.md](BIBLE.md)
 
@@ -176,7 +200,7 @@ Full text: [BIBLE.md](BIBLE.md)
 
 | Variable | Description |
 |----------|-------------|
-| `OPENROUTER_API_KEY` | OpenRouter API key for LLM calls |
+| `OPENROUTER_API_KEY` | Required for paid LLM execution; optional in bootstrap mode |
 | `TELEGRAM_BOT_TOKEN` | Telegram Bot API token |
 | `TOTAL_BUDGET` | Spending limit in USD |
 | `GITHUB_TOKEN` | GitHub personal access token with `repo` scope |
@@ -193,7 +217,7 @@ Full text: [BIBLE.md](BIBLE.md)
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GITHUB_USER` | *(required in config cell)* | GitHub username |
-| `GITHUB_REPO` | `ouroboros` | GitHub repository name |
+| `GITHUB_REPO` | `drago` | GitHub repository name |
 | `OUROBOROS_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model (via OpenRouter) |
 | `OUROBOROS_MODEL_CODE` | `anthropic/claude-sonnet-4.6` | Model for code editing tasks |
 | `OUROBOROS_MODEL_LIGHT` | `google/gemini-3-pro-preview` | Model for lightweight tasks (dedup, compaction) |
@@ -216,8 +240,8 @@ Full text: [BIBLE.md](BIBLE.md)
 | Branch | Location | Purpose |
 |--------|----------|---------|
 | `main` | Public repo | Stable release. Open for contributions. |
-| `ouroboros` | Your fork | Created at first boot. All agent commits here. |
-| `ouroboros-stable` | Your fork | Created at first boot. Crash fallback via `promote_to_stable`. |
+| `drago` | Your fork | Created at first boot. All agent commits here. |
+| `drago-stable` | Your fork | Created at first boot. Crash fallback via `promote_to_stable`. |
 
 ---
 
@@ -354,7 +378,7 @@ Full text: [BIBLE.md](BIBLE.md)
 
 ## Author
 
-Created by [Anton Razzhigaev](https://t.me/abstractDL)
+Created by [Леонид Кокорев](https://t.me/leotechru)
 
 ## License
 
