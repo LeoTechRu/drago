@@ -92,7 +92,10 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
     wid = evt.get("worker_id")
 
     # Track evolution task success/failure for circuit breaker
-    if task_type == "evolution":
+    is_evolution = task_type in ("evolution", "evolution_local")
+    is_local_evolution = bool(evt.get("local")) or task_type == "evolution_local"
+
+    if is_evolution:
         st = ctx.load_state()
         # Check if task produced meaningful output (successful evolution)
         # A successful evolution should have:
@@ -101,28 +104,46 @@ def _handle_task_done(evt: Dict[str, Any], ctx: Any) -> None:
         cost = float(evt.get("cost_usd") or 0)
         rounds = int(evt.get("total_rounds") or 0)
 
-        # Heuristic: if cost > $0.10 and rounds >= 1, consider it successful
-        # Empty responses typically cost < $0.01 and have 0-1 rounds
-        if cost > 0.10 and rounds >= 1:
-            # Success: reset failure counter
+        if is_local_evolution:
             st["evolution_consecutive_failures"] = 0
-            ctx.save_state(st)
-        else:
-            # Likely failure (empty response or minimal work)
-            failures = int(st.get("evolution_consecutive_failures") or 0) + 1
-            st["evolution_consecutive_failures"] = failures
             ctx.save_state(st)
             ctx.append_jsonl(
                 ctx.DRIVE_ROOT / "logs" / "supervisor.jsonl",
                 {
                     "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "type": "evolution_task_failure_tracked",
+                    "type": "evolution_local_task_done",
                     "task_id": task_id,
-                    "consecutive_failures": failures,
+                    "task_type": task_type,
                     "cost_usd": cost,
                     "rounds": rounds,
+                    "cycle": st.get("evolution_cycle"),
                 },
             )
+            # Continue to finalization below (cleanup RUNNING/WORKERS + snapshots)
+            pass
+        # Heuristic: if cost > $0.10 and rounds >= 1, consider it successful
+        # Empty responses typically cost < $0.01 and have 0-1 rounds
+        if not is_local_evolution:
+            if cost > 0.10 and rounds >= 1:
+                # Success: reset failure counter
+                st["evolution_consecutive_failures"] = 0
+                ctx.save_state(st)
+            else:
+                # Likely failure (empty response or minimal work)
+                failures = int(st.get("evolution_consecutive_failures") or 0) + 1
+                st["evolution_consecutive_failures"] = failures
+                ctx.save_state(st)
+                ctx.append_jsonl(
+                    ctx.DRIVE_ROOT / "logs" / "supervisor.jsonl",
+                    {
+                        "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "type": "evolution_task_failure_tracked",
+                        "task_id": task_id,
+                        "consecutive_failures": failures,
+                        "cost_usd": cost,
+                        "rounds": rounds,
+                    },
+                )
 
     if task_id:
         ctx.RUNNING.pop(str(task_id), None)
@@ -337,7 +358,9 @@ def _handle_toggle_evolution(evt: Dict[str, Any], ctx: Any) -> None:
     st["evolution_mode_enabled"] = enabled
     ctx.save_state(st)
     if not enabled:
-        ctx.PENDING[:] = [t for t in ctx.PENDING if str(t.get("type")) != "evolution"]
+        ctx.PENDING[:] = [
+            t for t in ctx.PENDING if str(t.get("type")) not in {"evolution", "evolution_local"}
+        ]
         ctx.sort_pending()
         ctx.persist_queue_snapshot(reason="evolve_off_via_tool")
     if st.get("owner_chat_id"):

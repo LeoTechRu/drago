@@ -383,6 +383,138 @@ class DragoAgent:
         cap_info["budget_remaining"] = budget_remaining
         return ctx, messages, cap_info
 
+    def _run_offline_evolution(self, task: Dict[str, Any]) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
+        """Run evolution without external API calls (local resource mode)."""
+        import subprocess
+        import re
+
+        task_id = str(task.get("id") or "unknown")
+        task_text = str(task.get("text") or "")
+        cycle = "unknown"
+        match = re.search(r"cycle\s*#?\s*(\d+)", task_text, flags=re.IGNORECASE)
+        if match:
+            cycle = match.group(1)
+
+        start_ts = utc_now_iso()
+        tool_calls: List[Dict[str, Any]] = []
+        notes: List[str] = []
+        usage: Dict[str, Any] = {
+            "cost": 0.0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "rounds": 1,
+        }
+
+        def _run(cmd: List[str]) -> subprocess.CompletedProcess[str]:
+            return subprocess.run(
+                cmd,
+                cwd=str(self.env.repo_dir),
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+
+        def _record_call(name: str, details: Dict[str, Any]) -> None:
+            tool_calls.append({
+                "name": name,
+                "status": "ok",
+                "details": details,
+            })
+
+        try:
+            self._emit_progress("🧬 Offline evolution: collecting repository signal.")
+
+            branch = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip() or "unknown"
+            sha = _run(["git", "rev-parse", "--short", "HEAD"]).stdout.strip() or "unknown"
+            status = _run(["git", "status", "--porcelain"])
+            dirty_lines = [line.strip() for line in status.stdout.splitlines() if line.strip()]
+            tracked_py = _run(["git", "ls-files", "*.py"]).stdout.splitlines()
+            tracked_py = [p for p in tracked_py if p.strip()]
+            python_files = len(tracked_py)
+
+            _record_call("git_summary", {
+                "branch": branch,
+                "head": sha,
+                "dirty_files": len(dirty_lines),
+                "python_files": python_files,
+            })
+
+            todo_files: List[Tuple[str, int]] = []
+            largest_files: List[Tuple[str, int]] = []
+
+            for rel in tracked_py[:400]:
+                path = self.env.repo_dir / rel
+                try:
+                    content = path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    continue
+                lines = content.splitlines()
+                largest_files.append((rel, len(lines)))
+                todo_hits = len([line for line in lines if re.search(r"TODO|FIXME|XXX", line, re.IGNORECASE)])
+                if todo_hits > 0:
+                    todo_files.append((rel, todo_hits))
+            largest_files.sort(key=lambda x: x[1], reverse=True)
+            todo_files.sort(key=lambda x: x[1], reverse=True)
+
+            _record_call("repo_scan", {
+                "scanned_files": min(len(tracked_py), 400),
+                "todo_hotspots": len(todo_files),
+            })
+
+            state_path = self.env.drive_path("state") / "state.json"
+            state_data = {}
+            try:
+                state_data = json.loads(read_text(state_path))
+            except Exception:
+                state_data = {}
+
+            evolution_mode = bool(state_data.get("evolution_mode_enabled", False))
+            consecutive_failures = int(state_data.get("evolution_consecutive_failures") or 0)
+            cycle_num = int(state_data.get("evolution_cycle") or 0)
+            last_cycle = str(cycle_num)
+            notes.append(f"🧬 Offline evolution task {task_id} (request cycle={cycle}, state cycle={last_cycle}).")
+            notes.append(f"🔧 Repo: {branch} @ {sha}, dirty={len(dirty_lines)} files, python_files={python_files}.")
+            notes.append(f"📈 Evolution mode: {'ON' if evolution_mode else 'OFF'}, consecutive failures: {consecutive_failures}.")
+
+            if todo_files:
+                top_todos = todo_files[:5]
+                top_todos_text = ", ".join(f"{name}({hits})" for name, hits in top_todos)
+                notes.append(f"🧠 TODO/FIXME hotspots: {top_todos_text}")
+            else:
+                notes.append("✅ TODO/FIXME hotspots: none in sampled files")
+
+            if largest_files:
+                top_sizes = ", ".join(f"{name}({lines} lines)" for name, lines in largest_files[:3])
+                notes.append(f"📦 Largest Python files: {top_sizes}")
+
+            if dirty_lines:
+                notes.append("⚠️ Local evolution kept read-only by default: no files were modified.")
+
+        except Exception as e:
+            log.warning("Offline evolution failed for task=%s", task_id, exc_info=True)
+            notes.append(f"⚠️ Offline evolution fallback: {type(e).__name__}: {e}")
+            tool_calls.append({
+                "name": "offline_evolution",
+                "status": "error",
+                "details": {"error": repr(e)},
+            })
+
+        text = "\n".join([
+            f"🧬 Offline Evolution Report (cycle {cycle})",
+            f"🕒 started: {start_ts}",
+            "",
+            *notes,
+            "",
+            "No paid API calls were used in this cycle.",
+        ])
+
+        llm_trace = {
+            "assistant_notes": notes,
+            "tool_calls": tool_calls,
+        }
+        return text, usage, llm_trace
+
     def handle_task(self, task: Dict[str, Any]) -> List[Dict[str, Any]]:
         self._busy = True
         start_time = time.time()
@@ -394,46 +526,46 @@ class DragoAgent:
 
         drive_logs = self.env.drive_path("logs")
         heartbeat_stop = self._start_task_heartbeat_loop(str(task.get("id") or ""))
+        task_type_str = str(task.get("type") or "").lower()
 
         try:
             # --- Prepare task context ---
             ctx, messages, cap_info = self._prepare_task_context(task)
             budget_remaining = cap_info.get("budget_remaining")
+            initial_effort = "high" if task_type_str in ("evolution", "review") else "medium"
 
             # --- LLM loop (delegated to loop.py) ---
             usage: Dict[str, Any] = {}
             llm_trace: Dict[str, Any] = {"assistant_notes": [], "tool_calls": []}
 
             # Set initial reasoning effort based on task type
-            task_type_str = str(task.get("type") or "").lower()
-            if task_type_str in ("evolution", "review"):
-                initial_effort = "high"
+            if task_type_str == "evolution_local":
+                self._emit_progress("⚙️ Running evolution in offline mode (no LLM/API).")
+                text, usage, llm_trace = self._run_offline_evolution(task)
             else:
-                initial_effort = "medium"
-
-            try:
-                text, usage, llm_trace = run_llm_loop(
-                    messages=messages,
-                    tools=self.tools,
-                    llm=self.llm,
-                    drive_logs=drive_logs,
-                    emit_progress=self._emit_progress,
-                    incoming_messages=self._incoming_messages,
-                    task_type=task_type_str,
-                    task_id=str(task.get("id") or ""),
-                    budget_remaining_usd=budget_remaining,
-                    event_queue=self._event_queue,
-                    initial_effort=initial_effort,
-                    drive_root=self.env.drive_root,
-                )
-            except Exception as e:
-                tb = traceback.format_exc()
-                append_jsonl(drive_logs / "events.jsonl", {
-                    "ts": utc_now_iso(), "type": "task_error",
-                    "task_id": task.get("id"), "error": repr(e),
-                    "traceback": truncate_for_log(tb, 2000),
-                })
-                text = f"⚠️ Error during processing: {type(e).__name__}: {e}"
+                try:
+                    text, usage, llm_trace = run_llm_loop(
+                        messages=messages,
+                        tools=self.tools,
+                        llm=self.llm,
+                        drive_logs=drive_logs,
+                        emit_progress=self._emit_progress,
+                        incoming_messages=self._incoming_messages,
+                        task_type=task_type_str,
+                        task_id=str(task.get("id") or ""),
+                        budget_remaining_usd=budget_remaining,
+                        event_queue=self._event_queue,
+                        initial_effort=initial_effort,
+                        drive_root=self.env.drive_root,
+                    )
+                except Exception as e:
+                    tb = traceback.format_exc()
+                    append_jsonl(drive_logs / "events.jsonl", {
+                        "ts": utc_now_iso(), "type": "task_error",
+                        "task_id": task.get("id"), "error": repr(e),
+                        "traceback": truncate_for_log(tb, 2000),
+                    })
+                    text = f"⚠️ Error during processing: {type(e).__name__}: {e}"
 
             # Empty response guard
             if not isinstance(text, str) or not text.strip():
@@ -509,6 +641,7 @@ class DragoAgent:
             "prompt_tokens": int(usage.get("prompt_tokens") or 0),
             "completion_tokens": int(usage.get("completion_tokens") or 0),
             "total_rounds": int(usage.get("rounds") or 0),
+            "local": bool(task.get("local")),
             "ts": utc_now_iso(),
         })
 
@@ -520,6 +653,7 @@ class DragoAgent:
             "total_rounds": int(usage.get("rounds") or 0),
             "prompt_tokens": int(usage.get("prompt_tokens") or 0),
             "completion_tokens": int(usage.get("completion_tokens") or 0),
+            "local": bool(task.get("local")),
             "ts": utc_now_iso(),
         })
         append_jsonl(drive_logs / "events.jsonl", {
@@ -531,6 +665,7 @@ class DragoAgent:
             "total_rounds": int(usage.get("rounds") or 0),
             "prompt_tokens": int(usage.get("prompt_tokens") or 0),
             "completion_tokens": int(usage.get("completion_tokens") or 0),
+            "local": bool(task.get("local")),
         })
 
         # Store task result for parent task retrieval

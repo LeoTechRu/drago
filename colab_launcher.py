@@ -151,6 +151,10 @@ DRAGO_FAKE_TELEGRAM = _env_bool(
     "DRAGO_FAKE_TELEGRAM",
     default=DRAGO_LOCAL_MODE,
 )
+DRAGO_OFFLINE_EVOLUTION = _env_bool(
+    "DRAGO_OFFLINE_EVOLUTION",
+    default=False,
+)
 
 OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", required=not DRAGO_LOCAL_MODE)
 TOTAL_BUDGET_DEFAULT = get_secret("TOTAL_BUDGET", required=not DRAGO_LOCAL_MODE)
@@ -158,6 +162,12 @@ GITHUB_TOKEN = get_secret("GITHUB_TOKEN", required=not DRAGO_SKIP_GIT_BOOTSTRAP)
 TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN", required=not DRAGO_FAKE_TELEGRAM)
 if DRAGO_FAKE_TELEGRAM and (TELEGRAM_BOT_TOKEN is None or str(TELEGRAM_BOT_TOKEN).strip() == ""):
     TELEGRAM_BOT_TOKEN = "fake-token"
+
+has_openrouter_key = bool(str(OPENROUTER_API_KEY or "").strip())
+
+if not has_openrouter_key:
+    # Auto-enable offline/evolution-local mode when no paid key is available
+    DRAGO_OFFLINE_EVOLUTION = True
 
 # Robust TOTAL_BUDGET parsing — handles \r\n, spaces, and other junk from Colab Secrets
 # Example: user enters "8 800" → Colab stores as "8\r\n800" → we need 8800
@@ -171,6 +181,10 @@ try:
 except Exception as e:
     log.warning(f"Failed to parse TOTAL_BUDGET ({TOTAL_BUDGET_DEFAULT!r}): {e}")
     TOTAL_BUDGET_LIMIT = 0.0
+
+# In no-budget mode with no paid API, force local evolution by default
+if not DRAGO_OFFLINE_EVOLUTION and TOTAL_BUDGET_LIMIT <= 0:
+    DRAGO_OFFLINE_EVOLUTION = True
 
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY", default="")
 ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY", default="")
@@ -213,6 +227,7 @@ if MODEL_LIGHT:
     os.environ["DRAGO_MODEL_LIGHT"] = str(MODEL_LIGHT)
 os.environ["DRAGO_DIAG_HEARTBEAT_SEC"] = str(DIAG_HEARTBEAT_SEC)
 os.environ["DRAGO_DIAG_SLOW_CYCLE_SEC"] = str(DIAG_SLOW_CYCLE_SEC)
+os.environ["DRAGO_OFFLINE_EVOLUTION"] = str(int(DRAGO_OFFLINE_EVOLUTION))
 os.environ["TELEGRAM_BOT_TOKEN"] = str(TELEGRAM_BOT_TOKEN)
 
 if str(ANTHROPIC_API_KEY or "").strip():
@@ -556,7 +571,10 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         st2["evolution_mode_enabled"] = bool(turn_on)
         save_state(st2)
         if not turn_on:
-            PENDING[:] = [t for t in PENDING if str(t.get("type")) != "evolution"]
+            PENDING[:] = [
+                t for t in PENDING
+                if str(t.get("type")) not in {"evolution", "evolution_local"}
+            ]
             sort_pending()
             persist_queue_snapshot(reason="evolve_off")
         state_str = "ON" if turn_on else "OFF"

@@ -73,6 +73,7 @@ def export_secret_to_env(name: str, required: bool = False) -> Optional[str]:
 DRAGO_LOCAL_MODE = _env_bool("DRAGO_LOCAL_MODE", default=not _HAS_COLAB_RUNTIME)
 DRAGO_SKIP_GIT_BOOTSTRAP = _env_bool("DRAGO_SKIP_GIT_BOOTSTRAP", default=DRAGO_LOCAL_MODE)
 DRAGO_FAKE_TELEGRAM = _env_bool("DRAGO_FAKE_TELEGRAM", default=DRAGO_LOCAL_MODE)
+DRAGO_OFFLINE_EVOLUTION = _env_bool("DRAGO_OFFLINE_EVOLUTION", default=False)
 
 _legacy_drive_root = os.environ.get("OUROBOROS_DRIVE_ROOT")
 if _legacy_drive_root and "DRAGO_DRIVE_ROOT" not in os.environ:
@@ -181,3 +182,5 @@ if not DRAGO_LOCAL_MODE and drive is not None and not pathlib.Path("/content/dri
 launcher_path = REPO_DIR / "colab_launcher.py"
 assert launcher_path.exists(), f"Missing launcher: {launcher_path}"
 subprocess.run([sys.executable, str(launcher_path)], cwd=str(REPO_DIR), check=True)
+# Pass offline evolution flag explicitly if provided by user/launcher env.
+os.environ["DRAGO_OFFLINE_EVOLUTION"] = "1" if DRAGO_OFFLINE_EVOLUTION else "0"

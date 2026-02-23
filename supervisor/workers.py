@@ -484,7 +484,8 @@ def assign_tasks() -> None:
                 # Find first suitable task (skip over-budget evolution tasks)
                 chosen_idx = None
                 for i, candidate in enumerate(PENDING):
-                    if str(candidate.get("type") or "") == "evolution" and budget_remaining(load_state()) < EVOLUTION_BUDGET_RESERVE:
+                    t = str(candidate.get("type") or "")
+                    if t == "evolution" and budget_remaining(load_state()) < EVOLUTION_BUDGET_RESERVE:
                         continue
                     chosen_idx = i
                     break
@@ -503,10 +504,10 @@ def assign_tasks() -> None:
                     "soft_sent": False, "attempt": int(task.get("_attempt") or 1),
                 }
                 task_type = str(task.get("type") or "")
-                if task_type in ("evolution", "review"):
+                if task_type in ("evolution", "evolution_local", "review"):
                     st = load_state()
                     if st.get("owner_chat_id"):
-                        emoji = '🧬' if task_type == 'evolution' else '🔎'
+                        emoji = '🧬' if task_type in ("evolution", "evolution_local") else '🔎'
                         send_with_budget(
                             int(st["owner_chat_id"]),
                             f"{emoji} {task_type.capitalize()} task {task['id']} started.",
@@ -584,5 +585,3 @@ def ensure_workers_healthy() -> None:
         # Kill all workers — direct chat via handle_chat_direct still works
         kill_workers()
         CRASH_TS.clear()
-
-

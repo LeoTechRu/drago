@@ -13,6 +13,7 @@ import pathlib
 import threading
 import time
 import uuid
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from supervisor.state import (
@@ -72,9 +73,14 @@ def _task_priority(task_type: str) -> int:
     t = str(task_type or "").strip().lower()
     if t in ("task", "review"):
         return 0
-    if t == "evolution":
+    if t in ("evolution", "evolution_local"):
         return 1
     return 2
+
+
+def _is_offline_evolution() -> bool:
+    """Whether evolution should run without paid API calls."""
+    return str(os.environ.get("DRAGO_OFFLINE_EVOLUTION", "0")).strip().lower() in {"1", "true", "yes", "on", "y"}
 
 
 def _queue_sort_key(task: Dict[str, Any]) -> Tuple[int, int]:
@@ -408,14 +414,19 @@ def enqueue_evolution_task_if_needed() -> None:
         save_state(st)
         send_with_budget(int(owner_chat_id), f"💸 Evolution stopped: ${remaining:.2f} remaining (reserve ${EVOLUTION_BUDGET_RESERVE:.0f} for conversations).")
         return
+    offline_mode = _is_offline_evolution()
     cycle = int(st.get("evolution_cycle") or 0) + 1
     tid = uuid.uuid4().hex[:8]
+    task_type = "evolution_local" if offline_mode else "evolution"
     enqueue_task({
-        "id": tid, "type": "evolution",
+        "id": tid, "type": task_type, "local": offline_mode,
         "chat_id": int(owner_chat_id),
         "text": build_evolution_task_text(cycle),
     })
     st["evolution_cycle"] = cycle
     st["last_evolution_task_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
     save_state(st)
-    send_with_budget(int(owner_chat_id), f"🧬 Evolution #{cycle}: {tid}")
+    if offline_mode:
+        send_with_budget(int(owner_chat_id), f"🧬 Offline Evolution #{cycle}: {tid}")
+    else:
+        send_with_budget(int(owner_chat_id), f"🧬 Evolution #{cycle}: {tid}")
