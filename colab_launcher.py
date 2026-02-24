@@ -156,7 +156,24 @@ DRAGO_OFFLINE_EVOLUTION = _env_bool(
     default=False,
 )
 
-OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", required=not DRAGO_LOCAL_MODE)
+DRAGO_LLM_BACKEND = get_cfg("DRAGO_LLM_BACKEND", default="openrouter", allow_legacy_secret=True)
+DRAGO_LLM_BACKEND = str(DRAGO_LLM_BACKEND).strip().lower() or "openrouter"
+DRAGO_LLM_BASE_URL = get_cfg("DRAGO_LLM_BASE_URL", default="").strip()
+DRAGO_LLM_API_KEY = get_secret("DRAGO_LLM_API_KEY", default="", required=False)
+
+if DRAGO_LLM_BACKEND == "openrouter":
+    if DRAGO_LLM_BASE_URL and ("openrouter.ai" not in DRAGO_LLM_BASE_URL and "api.openrouter.ai" not in DRAGO_LLM_BASE_URL):
+        log.warning(
+            "Non-OpenRouter base URL detected (%s): forcing DRAGO_LLM_BACKEND=openai-compatible mode.",
+            DRAGO_LLM_BASE_URL,
+        )
+        DRAGO_LLM_BACKEND = "openai"
+
+if DRAGO_LLM_BACKEND == "openrouter":
+    OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", required=not DRAGO_LOCAL_MODE)
+else:
+    OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", default="", required=False)
+
 TOTAL_BUDGET_DEFAULT = get_secret("TOTAL_BUDGET", required=not DRAGO_LOCAL_MODE)
 GITHUB_TOKEN = get_secret("GITHUB_TOKEN", required=not DRAGO_SKIP_GIT_BOOTSTRAP)
 TELEGRAM_BOT_TOKEN = get_secret("TELEGRAM_BOT_TOKEN", required=not DRAGO_FAKE_TELEGRAM)
@@ -164,10 +181,6 @@ if DRAGO_FAKE_TELEGRAM and (TELEGRAM_BOT_TOKEN is None or str(TELEGRAM_BOT_TOKEN
     TELEGRAM_BOT_TOKEN = "fake-token"
 
 has_openrouter_key = bool(str(OPENROUTER_API_KEY or "").strip())
-
-if not has_openrouter_key:
-    # Auto-enable offline/evolution-local mode when no paid key is available
-    DRAGO_OFFLINE_EVOLUTION = True
 
 # Robust TOTAL_BUDGET parsing — handles \r\n, spaces, and other junk from Colab Secrets
 # Example: user enters "8 800" → Colab stores as "8\r\n800" → we need 8800
@@ -182,9 +195,11 @@ except Exception as e:
     log.warning(f"Failed to parse TOTAL_BUDGET ({TOTAL_BUDGET_DEFAULT!r}): {e}")
     TOTAL_BUDGET_LIMIT = 0.0
 
-# In no-budget mode with no paid API, force local evolution by default
-if not DRAGO_OFFLINE_EVOLUTION and TOTAL_BUDGET_LIMIT <= 0:
-    DRAGO_OFFLINE_EVOLUTION = True
+# Offline (local) evolution is now opt-in: it is used only when explicitly
+# requested via DRAGO_OFFLINE_EVOLUTION. In budget-only or key-missing setups,
+# we avoid silent local fallback to ensure we don't run simulation loops.
+if DRAGO_OFFLINE_EVOLUTION and not has_openrouter_key:
+    log.warning("OpenRouter API key is missing: forcing offline evolution because DRAGO_OFFLINE_EVOLUTION is explicitly enabled.")
 
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY", default="")
 ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY", default="")
@@ -217,6 +232,11 @@ DIAG_SLOW_CYCLE_SEC = _parse_int_cfg(
 )
 
 os.environ["OPENROUTER_API_KEY"] = str(OPENROUTER_API_KEY)
+os.environ["DRAGO_LLM_BACKEND"] = str(DRAGO_LLM_BACKEND)
+os.environ["DRAGO_LLM_BASE_URL"] = str(DRAGO_LLM_BASE_URL)
+os.environ["DRAGO_LLM_API_KEY"] = str(
+    DRAGO_LLM_API_KEY or OPENAI_API_KEY or OPENROUTER_API_KEY or ""
+)
 os.environ["OPENAI_API_KEY"] = str(OPENAI_API_KEY or "")
 os.environ["ANTHROPIC_API_KEY"] = str(ANTHROPIC_API_KEY or "")
 os.environ["GITHUB_USER"] = str(GITHUB_USER)

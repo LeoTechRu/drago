@@ -83,12 +83,22 @@ Telegram --> colab_launcher.py
 | `GITHUB_TOKEN` | Yes | [github.com/settings/tokens](https://github.com/settings/tokens) -- Generate a classic token with `repo` scope |
 | `OPENAI_API_KEY` | No | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) -- Enables web search tool |
 | `ANTHROPIC_API_KEY` | No | [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) -- Enables Claude Code CLI |
+| `DRAGO_LLM_BACKEND` | No | `openrouter` (default), `openai` (for OpenAI-compatible endpoints), `ollama`/`lmstudio` aliases |
+| `DRAGO_LLM_BASE_URL` | No | `https://api.groq.com/openai/v1`, `http://127.0.0.1:11434/v1`, etc. |
+| `DRAGO_LLM_API_KEY` | No | Provider API key for non-OpenRouter backends (if needed) |
 
 Если у вас сейчас нет денег на платные API, запускайте в bootstrap-режиме:
 - `TOTAL_BUDGET=0` (или минимальное значение),
-- `OPENROUTER_API_KEY` пустой,
+- `OPENROUTER_API_KEY` можно оставить пустым,
+- для LLM используйте `DRAGO_LLM_BACKEND=openai` + удалённый OpenAI-совместимый endpoint (например Groq, HF endpoint) или локальный Ollama,
 - используйте только Telegram + локальные/гит/файловые операции и ручные решения через Codex,
 - любые платные возможности (`web_search`, `multi-model review`, доп. провайдеры) включайте только после подтверждения владельца и выделения бюджета.
+
+Для VDS без локального GPU/видеочипа:
+
+- не поднимайте Ollama на этом хосте как обязательный компонент;
+- задайте только remote endpoint в `DRAGO_LLM_BASE_URL` и модель, которую поддерживает провайдер;
+- ключ поставьте в `DRAGO_LLM_API_KEY` только если провайдер его требует.
 
 ### Step 3: Set Up Google Colab
 
@@ -123,7 +133,7 @@ CFG = {
     "GITHUB_USER": "YOUR_GITHUB_USERNAME",                       # <-- CHANGE THIS
     "GITHUB_REPO": "drago",                                      # <-- repo name (after fork)
     # Models
-    "DRAGO_MODEL": "anthropic/claude-sonnet-4.6",            # primary LLM (via OpenRouter)
+    "DRAGO_MODEL": "llama-3.1-8b-instant",                  # primary LLM (по выбранному backend)
     "DRAGO_MODEL_CODE": "anthropic/claude-sonnet-4.6",       # code editing (Claude Code CLI)
     "DRAGO_MODEL_LIGHT": "google/gemini-3-pro-preview",      # consciousness + lightweight tasks
     "DRAGO_WEBSEARCH_MODEL": "gpt-5",                        # web search (OpenAI Responses API)
@@ -133,6 +143,10 @@ CFG = {
     "DRAGO_MAX_WORKERS": "5",
     "DRAGO_MAX_ROUNDS": "200",                               # max LLM rounds per task
     "DRAGO_BG_BUDGET_PCT": "10",                             # % of budget for background consciousness
+    # OpenAI-compatible backend (free local / low-cost external options)
+    "DRAGO_LLM_BACKEND": "openai",                          # try local Ollama first
+    "DRAGO_LLM_BASE_URL": "http://127.0.0.1:11434/v1",       # for Ollama; use `https://api.groq.com/openai/v1` for Groq
+    # DRAGO_LLM_API_KEY: set in env/secrets if provider requires it (Ollama usually accepts any value like "ollama")
 }
 for k, v in CFG.items():
     os.environ[k] = str(v)
@@ -211,6 +225,9 @@ Full text: [BIBLE.md](BIBLE.md)
 |----------|-------------|
 | `OPENAI_API_KEY` | Enables the `web_search` tool |
 | `ANTHROPIC_API_KEY` | Enables Claude Code CLI for code editing |
+| `DRAGO_LLM_BACKEND` | Backend mode for LLM calls (`openrouter`, `openai`, `ollama`, `lmstudio`) |
+| `DRAGO_LLM_BASE_URL` | Custom base URL for OpenAI-compatible providers |
+| `DRAGO_LLM_API_KEY` | Provider key for non-OpenRouter backends |
 
 ### Optional Configuration (environment variables)
 
@@ -218,7 +235,7 @@ Full text: [BIBLE.md](BIBLE.md)
 |----------|---------|-------------|
 | `GITHUB_USER` | *(required in config cell)* | GitHub username |
 | `GITHUB_REPO` | `drago` | GitHub repository name |
-| `DRAGO_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model (via OpenRouter) |
+| `DRAGO_MODEL` | `anthropic/claude-sonnet-4.6` | Primary LLM model identifier |
 | `DRAGO_MODEL_CODE` | `anthropic/claude-sonnet-4.6` | Model for code editing tasks |
 | `DRAGO_MODEL_LIGHT` | `google/gemini-3-pro-preview` | Model for lightweight tasks (dedup, compaction) |
 | `DRAGO_WEBSEARCH_MODEL` | `gpt-5` | Model for web search (OpenAI Responses API) |
@@ -226,6 +243,34 @@ Full text: [BIBLE.md](BIBLE.md)
 | `DRAGO_BG_BUDGET_PCT` | `10` | Percentage of total budget allocated to background consciousness |
 | `DRAGO_MAX_ROUNDS` | `200` | Maximum LLM rounds per task |
 | `DRAGO_MODEL_FALLBACK_LIST` | `google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
+
+### Budget-friendly/Free LLM options
+
+Поддерживаются OpenAI-совместимые backends без OpenRouter:
+
+- **Ollama (локально, бесплатный на вашем железе)**
+  - `DRAGO_LLM_BACKEND=openai`
+  - `DRAGO_LLM_BASE_URL=http://127.0.0.1:11434/v1`
+  - `DRAGO_MODEL=llama3.2` (или другой загруженный в Ollama)
+  - ключ обычно можно оставить пустым или поставить `DRAGO_LLM_API_KEY=ollama`
+- **Groq (низкобюджетный/бесплатный входной уровень, нужен API-ключ)**
+  - `DRAGO_LLM_BACKEND=openai`
+  - `DRAGO_LLM_BASE_URL=https://api.groq.com/openai/v1`
+  - `DRAGO_LLM_API_KEY=$GROQ_API_KEY`
+  - модель: `llama-3.1-8b-instant` или `llama-3.3-70b-versatile`
+- **Hugging Face Inference Providers**
+  - `DRAGO_LLM_BACKEND=openai`
+  - укажите endpoint, который даёт OpenAI-совместимый `chat/completions`
+  - ключ в `DRAGO_LLM_API_KEY` (если требуется)
+
+Для `codex` CLI прямо как backend текущая архитектура Drago пока не подходит (у неё нет совместимого function-calling для текущего tool-loop), поэтому её стоит оставлять для отдельных задач, как отдельный исполнитель.
+
+Пример безопасного ручного запуска:
+
+```bash
+codex exec --json --output-last-message /tmp/codex_last.txt "Внеси правки в README.md по задаче и верни diff."
+cat /tmp/codex_last.txt
+```
 
 ---
 

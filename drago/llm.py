@@ -15,6 +15,27 @@ from typing import Any, Dict, List, Optional, Tuple
 log = logging.getLogger(__name__)
 
 DEFAULT_LIGHT_MODEL = "google/gemini-3-pro-preview"
+_DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
+
+
+def _resolve_llm_backend(value: str = "") -> str:
+    raw = str(value or os.environ.get("DRAGO_LLM_BACKEND", "openrouter")).strip().lower()
+    if not raw:
+        return "openrouter"
+
+    normalized = {
+        "openrouter": "openrouter",
+        "openai": "openai",
+        "openai-compatible": "openai",
+        "openai_compatible": "openai",
+        "ollama": "openai",
+        "lmstudio": "openai",
+        "oss": "openai",
+        "azure_openai": "openai",
+    }
+
+    return normalized.get(raw, raw)
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
@@ -103,15 +124,40 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
 
 
 class LLMClient:
-    """OpenRouter API wrapper. All LLM calls go through this class."""
+    """OpenRouter/OpenAI-compatible API wrapper."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        base_url: str = "https://openrouter.ai/api/v1",
+        base_url: Optional[str] = None,
+        backend: Optional[str] = None,
     ):
-        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
-        self._base_url = base_url
+        self._backend = _resolve_llm_backend(backend)
+        if self._backend not in {"openrouter", "openai"}:
+            raise ValueError(
+                f"Unsupported DRAGO_LLM_BACKEND={self._backend!r}. "
+                "Use 'openrouter' or OpenAI-compatible backend aliases (openai/ollama/lmstudio)."
+            )
+
+        if self._backend == "openrouter":
+            self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+            self._base_url = base_url or os.environ.get("DRAGO_LLM_BASE_URL", "") or _DEFAULT_OPENROUTER_BASE_URL
+        else:
+            self._api_key = (
+                api_key
+                or os.environ.get("DRAGO_LLM_API_KEY", "")
+                or os.environ.get("OPENAI_API_KEY", "")
+                or os.environ.get("OPENROUTER_API_KEY", "")
+            )
+            if not self._api_key:
+                candidate_base = base_url or os.environ.get("DRAGO_LLM_BASE_URL", "")
+                if candidate_base and (
+                    candidate_base.startswith("http://localhost:")
+                    or candidate_base.startswith("http://127.0.0.1:")
+                    or candidate_base.startswith("https://localhost:")
+                ):
+                    self._api_key = "ollama"
+            self._base_url = base_url or os.environ.get("DRAGO_LLM_BASE_URL", "") or _DEFAULT_OPENAI_BASE_URL
         self._client = None
 
     def _get_client(self):
@@ -129,6 +175,8 @@ class LLMClient:
 
     def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
         """Fetch cost from OpenRouter Generation API as fallback."""
+        if self._backend != "openrouter":
+            return None
         try:
             import requests
             url = f"{self._base_url.rstrip('/')}/generation?id={generation_id}"
@@ -164,24 +212,29 @@ class LLMClient:
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
-        extra_body: Dict[str, Any] = {
-            "reasoning": {"effort": effort, "exclude": True},
-        }
-
-        # Pin Anthropic models to Anthropic provider for prompt caching
-        if model.startswith("anthropic/"):
-            extra_body["provider"] = {
-                "order": ["Anthropic"],
-                "allow_fallbacks": False,
-                "require_parameters": True,
-            }
-
         kwargs: Dict[str, Any] = {
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
-            "extra_body": extra_body,
         }
+        if self._backend == "openrouter":
+            extra_body: Dict[str, Any] = {
+                "reasoning": {"effort": effort, "exclude": True},
+            }
+
+            # Pin Anthropic models to Anthropic provider for prompt caching
+            if model.startswith("anthropic/"):
+                extra_body["provider"] = {
+                    "order": ["Anthropic"],
+                    "allow_fallbacks": False,
+                    "require_parameters": True,
+                }
+            kwargs["extra_body"] = extra_body
+
+        if self._backend != "openrouter":
+            kwargs["temperature"] = 0
+            # Keep compatibility with OpenAI-compatible backends that may ignore reasoning.
+
         if tools:
             # Add cache_control to last tool for Anthropic prompt caching
             # This caches all tool schemas (they never change between calls)

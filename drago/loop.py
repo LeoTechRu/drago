@@ -60,6 +60,11 @@ def _get_pricing() -> Dict[str, Tuple[float, float, float]]:
     if _pricing_fetched:
         return _cached_pricing or _MODEL_PRICING_STATIC
 
+    if os.getenv("DRAGO_LLM_BACKEND", "openrouter").strip().lower() != "openrouter":
+        _pricing_fetched = True
+        _cached_pricing = dict(_MODEL_PRICING_STATIC)
+        return _cached_pricing
+
     # Slow path: fetch pricing (lock required)
     with _pricing_lock:
         # Double-check after acquiring lock (another thread may have fetched)

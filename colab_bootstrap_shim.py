@@ -100,7 +100,13 @@ else:
     export_secret_to_env("TELEGRAM_BOT_TOKEN", required=True)
 
 # Optional secrets (keep empty if missing).
-for _name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+for _name in (
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "DRAGO_LLM_BACKEND",
+    "DRAGO_LLM_BASE_URL",
+    "DRAGO_LLM_API_KEY",
+):
     export_secret_to_env(_name, required=False)
 
 # Colab diagnostics defaults (override in config cell if needed).
