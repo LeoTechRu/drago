@@ -177,6 +177,15 @@ class DragoAgent:
             if remote_result.returncode != 0:
                 return {"status": "warning", "files": dirty_files, "auto_committed": False, "reason": "no_git_remote"}, 0
 
+            branch_result = subprocess.run(
+                ["git", "ls-remote", "--heads", "origin", self.env.branch_dev],
+                cwd=str(self.env.repo_dir),
+                capture_output=True, text=True, timeout=10,
+                check=False,
+            )
+            if branch_result.returncode != 0:
+                return {"status": "warning", "files": dirty_files, "auto_committed": False, "reason": "remote_branch_missing"}, 0
+
             if dirty_files:
                 # Auto-rescue: commit and push
                 auto_committed = False
