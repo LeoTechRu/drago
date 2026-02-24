@@ -141,7 +141,21 @@ class DragoAgent:
         """Check for uncommitted changes and attempt auto-rescue commit & push."""
         import re
         import subprocess
+        import os
+
+        lock_path = self.env.repo_dir / ".git" / "drago.startup.uncommitted.lock"
+        lock_fd = None
         try:
+            import fcntl
+            try:
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as e:
+                if e.errno in {11, 35}:  # EWOULDBLOCK / EAGAIN
+                    return {"status": "skipped", "reason": "concurrent_startup_check_in_progress"}, 0
+                raise
+
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 cwd=str(self.env.repo_dir),
@@ -191,6 +205,15 @@ class DragoAgent:
                 return {"status": "ok"}, 0
         except Exception as e:
             return {"status": "error", "error": str(e)}, 0
+        finally:
+            if lock_fd is not None:
+                try:
+                    import fcntl as _fcntl
+                    _fcntl.flock(lock_fd, _fcntl.LOCK_UN)
+                    os.close(lock_fd)
+                except Exception:
+                    log.debug("Failed to release startup git lock", exc_info=True)
+                    pass
 
     def _check_version_sync(self) -> Tuple[dict, int]:
         """Check VERSION file sync with git tags and pyproject.toml."""

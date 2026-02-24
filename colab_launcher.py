@@ -25,10 +25,23 @@ def _coerce_path(name: str, default: str) -> pathlib.Path:
 # 0) Install launcher deps
 # ----------------------------
 def install_launcher_deps() -> None:
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "openai>=1.0.0", "requests"],
-        check=True,
-    )
+    import importlib.util as _importlib_util
+
+    missing = []
+    if _importlib_util.find_spec("openai") is None:
+        missing.append("openai>=1.0.0")
+    if _importlib_util.find_spec("requests") is None:
+        missing.append("requests")
+    if not missing:
+        return
+
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q", *missing],
+            check=True,
+        )
+    except Exception as e:
+        log.warning("Skipping dependency auto-install in current environment: %s", e)
 
 install_launcher_deps()
 
