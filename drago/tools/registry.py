@@ -55,11 +55,20 @@ class ToolContext:
     # True when running inside handle_chat_direct (not a queued worker task)
     is_direct_chat: bool = False
 
+    def _resolve_inside(self, base: pathlib.Path, rel: str) -> pathlib.Path:
+        base_resolved = base.resolve()
+        resolved = (base_resolved / safe_relpath(rel)).resolve()
+        try:
+            resolved.relative_to(base_resolved)
+        except ValueError as e:
+            raise ValueError("Path escapes base directory.") from e
+        return resolved
+
     def repo_path(self, rel: str) -> pathlib.Path:
-        return (self.repo_dir / safe_relpath(rel)).resolve()
+        return self._resolve_inside(self.repo_dir, rel)
 
     def drive_path(self, rel: str) -> pathlib.Path:
-        return (self.drive_root / safe_relpath(rel)).resolve()
+        return self._resolve_inside(self.drive_root, rel)
 
     def drive_logs(self) -> pathlib.Path:
         return (self.drive_root / "logs").resolve()

@@ -171,6 +171,25 @@ def test_safe_relpath_strips_leading_slash():
     assert not result.startswith("/")
 
 
+def test_tool_context_repo_path_rejects_symlink_escape(tmp_path):
+    from drago.tools.registry import ToolContext
+
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    repo.mkdir()
+    outside.mkdir()
+
+    link = repo / "escape"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink is not supported in this environment")
+
+    ctx = ToolContext(repo_dir=repo, drive_root=repo)
+    with pytest.raises(ValueError):
+        ctx.repo_path("escape/secret.txt")
+
+
 def test_clip_text():
     from drago.utils import clip_text
 
