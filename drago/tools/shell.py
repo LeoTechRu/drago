@@ -58,7 +58,7 @@ def _run_shell(ctx: ToolContext, cmd, cwd: str = "") -> str:
             log.debug("Failed to log run_shell warning to events.jsonl", exc_info=True)
             pass
 
-    if not isinstance(cmd, list):
+    if not isinstance(cmd, list) or not cmd:
         return "⚠️ SHELL_ARG_ERROR: cmd must be a list of strings."
     cmd = [str(x) for x in cmd]
 

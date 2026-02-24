@@ -194,7 +194,17 @@ def _parse_model_response(model: str, result, headers_dict) -> dict:
             text = f"(no choices in response: {json.dumps(result)[:200]})"
             verdict = "ERROR"
         else:
-            text = choices[0]["message"]["content"]
+            choice0 = (
+                choices[0]
+                if isinstance(choices, list) and choices and isinstance(choices[0], dict)
+                else {}
+            )
+            message = choice0.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+            else:
+                content = choice0.get("text")
+            text = str(content or "")
             # Robust verdict parsing: check first 3 lines for PASS/FAIL anywhere (case-insensitive)
             verdict = "UNKNOWN"
             lines = text.split("\n")[:3]  # Check only first 3 lines
@@ -257,9 +267,9 @@ def _emit_usage_event(review_result: dict, ctx: ToolContext) -> None:
         "ts": utc_now_iso(),
         "task_id": ctx.task_id if ctx.task_id else "",
         "usage": {
-            "prompt_tokens": review_result["tokens_in"],
-            "completion_tokens": review_result["tokens_out"],
-            "cost": review_result["cost_estimate"],
+            "prompt_tokens": int(review_result.get("tokens_in", 0)),
+            "completion_tokens": int(review_result.get("tokens_out", 0)),
+            "cost": float(review_result.get("cost_estimate", 0.0)),
         },
         "category": "review",
     }
