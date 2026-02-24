@@ -54,12 +54,15 @@ def _drive_list(ctx: ToolContext, dir: str = ".", max_entries: int = 500) -> str
 def _drive_write(ctx: ToolContext, path: str, content: str, mode: str = "overwrite") -> str:
     p = ctx.drive_path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    if mode == "overwrite":
+    normalized_mode = str(mode or "overwrite").strip().lower()
+    if normalized_mode not in {"overwrite", "append"}:
+        return "⚠️ Unsupported mode. Use one of: overwrite, append."
+    if normalized_mode == "overwrite":
         p.write_text(content, encoding="utf-8")
     else:
         with p.open("a", encoding="utf-8") as f:
             f.write(content)
-    return f"OK: wrote {mode} {path} ({len(content)} chars)"
+    return f"OK: wrote {normalized_mode} {path} ({len(content)} chars)"
 
 
 # ---------------------------------------------------------------------------
