@@ -166,8 +166,23 @@ def estimate_tokens(text: str) -> int:
 # Subprocess
 # ---------------------------------------------------------------------------
 
-def run_cmd(cmd: List[str], cwd: Optional[pathlib.Path] = None) -> str:
-    res = subprocess.run(cmd, cwd=str(cwd) if cwd else None, capture_output=True, text=True)
+def run_cmd(
+    cmd: List[str],
+    cwd: Optional[pathlib.Path] = None,
+    timeout_sec: Optional[float] = 300.0,
+) -> str:
+    try:
+        res = subprocess.run(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"Command timed out after {timeout_sec}s: {' '.join(cmd)}"
+        ) from exc
     if res.returncode != 0:
         raise RuntimeError(
             f"Command failed: {' '.join(cmd)}\n\nSTDOUT:\n{res.stdout}\n\nSTDERR:\n{res.stderr}"
