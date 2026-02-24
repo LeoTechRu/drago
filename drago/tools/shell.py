@@ -180,8 +180,13 @@ def _claude_code_edit(ctx: ToolContext, prompt: str, cwd: str = "") -> str:
     work_dir = str(ctx.repo_dir)
     if cwd and cwd.strip() not in ("", ".", "./"):
         candidate = (ctx.repo_dir / cwd).resolve()
-        if candidate.exists():
-            work_dir = str(candidate)
+        try:
+            candidate.relative_to(ctx.repo_dir.resolve())
+        except ValueError:
+            log.warning("claude_code_edit: cwd %s escapes repo root, ignoring", cwd)
+        else:
+            if candidate.exists() and candidate.is_dir():
+                work_dir = str(candidate)
 
     claude_bin = shutil.which("claude")
     if not claude_bin:
