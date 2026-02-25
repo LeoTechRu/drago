@@ -148,8 +148,14 @@ def truncate_for_log(s: str, max_chars: int = 4000) -> str:
 def clip_text(text: str, max_chars: int) -> str:
     if max_chars <= 0 or len(text) <= max_chars:
         return text
-    half = max(200, max_chars // 2)
-    return text[:half] + "\n...(truncated)...\n" + text[-half:]
+    marker = "\n...(truncated)...\n"
+    if max_chars <= len(marker):
+        return marker[:max_chars]
+
+    budget = max_chars - len(marker)
+    head_len = budget // 2
+    tail_len = budget - head_len
+    return text[:head_len] + marker + text[-tail_len:]
 
 
 def short(s: Any, n: int = 120) -> str:
