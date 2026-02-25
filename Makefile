@@ -1,7 +1,7 @@
 # Drago — common development commands
 # Usage: make test, make lint, make health
 
-.PHONY: test lint health clean
+.PHONY: test test-v lint health clean
 
 # Run smoke tests (fast, no external deps needed at runtime)
 test:
