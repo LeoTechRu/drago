@@ -348,6 +348,14 @@ cat .drago_data/logs/codex_last.txt
 
 ## Changelog
 
+### v6.3.0 -- Free-Provider Routing & Codex Fallback
+
+- Autonomous free-provider routing (hf, openrouter, groq, cloudflare) with adaptive rotation
+- Codex CLI fallback for evolution tasks when all free providers are exhausted
+- i18n support for Telegram notifications (ru locale)
+- Extended configuration for bootstrap/free-only mode
+- Updated documentation for budget-friendly operation
+
 ### v6.2.0 -- Critical Bugfixes + LLM-First Dedup
 - **Fix: worker_id==0 hard-timeout bug** -- `int(x or -1)` treated worker 0 as -1, preventing terminate on timeout and causing double task execution. Replaced all `x or default` patterns with None-safe checks.
 - **Fix: double budget accounting** -- per-task aggregate `llm_usage` event removed; per-round events already track correctly. Eliminates ~2x budget drift.
