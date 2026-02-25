@@ -168,6 +168,35 @@ DRAGO_OFFLINE_EVOLUTION = _env_bool(
     "DRAGO_OFFLINE_EVOLUTION",
     default=False,
 )
+DRAGO_FREE_ONLY = _env_bool("DRAGO_FREE_ONLY", default=False)
+DRAGO_CODEX_FALLBACK_ENABLED = _env_bool("DRAGO_CODEX_FALLBACK_ENABLED", default=True)
+DRAGO_FREE_PROVIDER_ORDER = str(
+    get_cfg("DRAGO_FREE_PROVIDER_ORDER", default="groq,openrouter,cloudflare,hf", allow_legacy_secret=True) or "groq,openrouter,cloudflare,hf"
+).strip()
+DRAGO_FREE_PROVIDER_COOLDOWN_SEC = _parse_int_cfg(
+    get_cfg("DRAGO_FREE_PROVIDER_COOLDOWN_SEC", default="600", allow_legacy_secret=True),
+    default=600,
+    minimum=1,
+)
+DRAGO_LOCALE = str(get_cfg("DRAGO_LOCALE", default="ru", allow_legacy_secret=True) or "ru").strip().lower() or "ru"
+DRAGO_FORCE_OWNER_LANGUAGE = _env_bool("DRAGO_FORCE_OWNER_LANGUAGE", default=True)
+DRAGO_BG_AUTOSTART = _env_bool("DRAGO_BG_AUTOSTART", default=True)
+DRAGO_EVOLUTION_AUTOSTART = _env_bool("DRAGO_EVOLUTION_AUTOSTART", default=True)
+DRAGO_BG_REPORT_INTERVAL_SEC = _parse_int_cfg(
+    get_cfg("DRAGO_BG_REPORT_INTERVAL_SEC", default="900", allow_legacy_secret=True),
+    default=900,
+    minimum=0,
+)
+DRAGO_MULTI_API_MODE = str(
+    get_cfg("DRAGO_MULTI_API_MODE", default="adaptive_rr", allow_legacy_secret=True) or "adaptive_rr"
+).strip().lower() or "adaptive_rr"
+DRAGO_CODEX_FALLBACK_TASK_TYPES = str(
+    get_cfg(
+        "DRAGO_CODEX_FALLBACK_TASK_TYPES",
+        default="evolution,task,consciousness",
+        allow_legacy_secret=True,
+    ) or "evolution,task,consciousness"
+).strip()
 
 DRAGO_LLM_BACKEND = get_cfg("DRAGO_LLM_BACKEND", default="openrouter", allow_legacy_secret=True)
 DRAGO_LLM_BACKEND = str(DRAGO_LLM_BACKEND).strip().lower() or "openrouter"
@@ -183,9 +212,18 @@ if DRAGO_LLM_BACKEND == "openrouter":
         DRAGO_LLM_BACKEND = "openai"
 
 if DRAGO_LLM_BACKEND == "openrouter":
-    OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", required=not DRAGO_LOCAL_MODE)
+    OPENROUTER_API_KEY = get_secret(
+        "OPENROUTER_API_KEY",
+        required=(not DRAGO_LOCAL_MODE and not DRAGO_FREE_ONLY),
+    )
 else:
     OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", default="", required=False)
+
+DRAGO_GROQ_API_KEY = get_secret("DRAGO_GROQ_API_KEY", default=get_secret("GROQ_API_KEY", default=""), required=False)
+DRAGO_OPENROUTER_API_KEY = get_secret("DRAGO_OPENROUTER_API_KEY", default=OPENROUTER_API_KEY, required=False)
+DRAGO_CLOUDFLARE_API_TOKEN = get_secret("DRAGO_CLOUDFLARE_API_TOKEN", default="", required=False)
+DRAGO_CLOUDFLARE_ACCOUNT_ID = get_secret("DRAGO_CLOUDFLARE_ACCOUNT_ID", default="", required=False)
+DRAGO_HF_TOKEN = get_secret("DRAGO_HF_TOKEN", default=get_secret("HUGGINGFACEHUB_API_TOKEN", default=""), required=False)
 
 TOTAL_BUDGET_DEFAULT = get_secret("TOTAL_BUDGET", required=not DRAGO_LOCAL_MODE)
 GITHUB_TOKEN = get_secret("GITHUB_TOKEN", required=not DRAGO_SKIP_GIT_BOOTSTRAP)
@@ -194,6 +232,15 @@ if DRAGO_FAKE_TELEGRAM and (TELEGRAM_BOT_TOKEN is None or str(TELEGRAM_BOT_TOKEN
     TELEGRAM_BOT_TOKEN = "fake-token"
 
 has_openrouter_key = bool(str(OPENROUTER_API_KEY or "").strip())
+has_any_free_key = any(
+    bool(str(x or "").strip())
+    for x in (
+        DRAGO_GROQ_API_KEY,
+        DRAGO_OPENROUTER_API_KEY,
+        DRAGO_CLOUDFLARE_API_TOKEN,
+        DRAGO_HF_TOKEN,
+    )
+)
 
 # Robust TOTAL_BUDGET parsing — handles \r\n, spaces, and other junk from Colab Secrets
 # Example: user enters "8 800" → Colab stores as "8\r\n800" → we need 8800
@@ -213,6 +260,8 @@ except Exception as e:
 # we avoid silent local fallback to ensure we don't run simulation loops.
 if DRAGO_OFFLINE_EVOLUTION and not has_openrouter_key:
     log.warning("OpenRouter API key is missing: forcing offline evolution because DRAGO_OFFLINE_EVOLUTION is explicitly enabled.")
+if DRAGO_FREE_ONLY and not has_any_free_key:
+    log.warning("DRAGO_FREE_ONLY is enabled but no free-provider keys were found.")
 
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY", default="")
 ANTHROPIC_API_KEY = get_secret("ANTHROPIC_API_KEY", default="")
@@ -245,8 +294,24 @@ DIAG_SLOW_CYCLE_SEC = _parse_int_cfg(
 )
 
 os.environ["OPENROUTER_API_KEY"] = str(OPENROUTER_API_KEY)
+os.environ["DRAGO_FREE_ONLY"] = str(int(DRAGO_FREE_ONLY))
+os.environ["DRAGO_CODEX_FALLBACK_ENABLED"] = str(int(DRAGO_CODEX_FALLBACK_ENABLED))
+os.environ["DRAGO_FREE_PROVIDER_ORDER"] = str(DRAGO_FREE_PROVIDER_ORDER)
+os.environ["DRAGO_FREE_PROVIDER_COOLDOWN_SEC"] = str(DRAGO_FREE_PROVIDER_COOLDOWN_SEC)
+os.environ["DRAGO_GROQ_API_KEY"] = str(DRAGO_GROQ_API_KEY or "")
+os.environ["DRAGO_OPENROUTER_API_KEY"] = str(DRAGO_OPENROUTER_API_KEY or "")
+os.environ["DRAGO_CLOUDFLARE_API_TOKEN"] = str(DRAGO_CLOUDFLARE_API_TOKEN or "")
+os.environ["DRAGO_CLOUDFLARE_ACCOUNT_ID"] = str(DRAGO_CLOUDFLARE_ACCOUNT_ID or "")
+os.environ["DRAGO_HF_TOKEN"] = str(DRAGO_HF_TOKEN or "")
 os.environ["DRAGO_LLM_BACKEND"] = str(DRAGO_LLM_BACKEND)
 os.environ["DRAGO_LLM_BASE_URL"] = str(DRAGO_LLM_BASE_URL)
+os.environ["DRAGO_LOCALE"] = str(DRAGO_LOCALE)
+os.environ["DRAGO_FORCE_OWNER_LANGUAGE"] = str(int(DRAGO_FORCE_OWNER_LANGUAGE))
+os.environ["DRAGO_BG_AUTOSTART"] = str(int(DRAGO_BG_AUTOSTART))
+os.environ["DRAGO_EVOLUTION_AUTOSTART"] = str(int(DRAGO_EVOLUTION_AUTOSTART))
+os.environ["DRAGO_BG_REPORT_INTERVAL_SEC"] = str(DRAGO_BG_REPORT_INTERVAL_SEC)
+os.environ["DRAGO_MULTI_API_MODE"] = str(DRAGO_MULTI_API_MODE)
+os.environ["DRAGO_CODEX_FALLBACK_TASK_TYPES"] = str(DRAGO_CODEX_FALLBACK_TASK_TYPES)
 os.environ["DRAGO_LLM_API_KEY"] = str(
     DRAGO_LLM_API_KEY or OPENAI_API_KEY or OPENROUTER_API_KEY or ""
 )
@@ -403,6 +468,7 @@ workers_init(
 )
 
 from supervisor.events import dispatch_event
+from supervisor.i18n import t
 
 # ----------------------------
 # 5) Bootstrap repo
@@ -425,8 +491,10 @@ persist_queue_snapshot(reason="startup")
 if restored_pending > 0:
     st_boot = load_state()
     if st_boot.get("owner_chat_id"):
-        send_with_budget(int(st_boot["owner_chat_id"]),
-                         f"♻️ Restored pending queue from snapshot: {restored_pending} tasks.")
+        send_with_budget(
+            int(st_boot["owner_chat_id"]),
+            t("restored_pending_tasks", count=restored_pending),
+        )
 
 append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
     "ts": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -469,8 +537,7 @@ def _chat_watchdog_loop():
                 if st.get("owner_chat_id"):
                     send_with_budget(
                         int(st["owner_chat_id"]),
-                        f"⚠️ Task stuck ({int(total_sec)}s without progress). "
-                        f"Restarting agent.",
+                        t("task_stuck_restart", total=int(total_sec)),
                     )
                 reset_chat_agent()
                 soft_warned = False
@@ -482,8 +549,7 @@ def _chat_watchdog_loop():
                 if st.get("owner_chat_id"):
                     send_with_budget(
                         int(st["owner_chat_id"]),
-                        f"⏱️ Task running for {int(total_sec)}s, "
-                        f"last progress {int(idle_sec)}s ago. Continuing.",
+                        t("task_running_progress", total=int(total_sec), idle=int(idle_sec)),
                     )
         except Exception:
             log.debug("Failed to check/notify chat watchdog", exc_info=True)
@@ -566,7 +632,7 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
     lowered = text.strip().lower()
 
     if lowered.startswith("/panic"):
-        send_with_budget(chat_id, "🛑 PANIC: stopping everything now.")
+        send_with_budget(chat_id, t("panic_now"))
         kill_workers()
         st2 = load_state()
         st2["tg_offset"] = tg_offset
@@ -578,10 +644,10 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
         st2["session_id"] = uuid.uuid4().hex
         st2["tg_offset"] = tg_offset
         save_state(st2)
-        send_with_budget(chat_id, "♻️ Restarting (soft).")
+        send_with_budget(chat_id, t("restarting_soft"))
         ok, msg = safe_restart(reason="owner_restart", unsynced_policy="rescue_and_reset")
         if not ok:
-            send_with_budget(chat_id, f"⚠️ Restart cancelled: {msg}")
+            send_with_budget(chat_id, t("restart_cancelled", reason=msg))
             return True
         kill_workers()
         os.execv(sys.executable, [sys.executable, __file__])
@@ -610,23 +676,23 @@ def _handle_supervisor_command(text: str, chat_id: int, tg_offset: int = 0):
             ]
             sort_pending()
             persist_queue_snapshot(reason="evolve_off")
-        state_str = "ON" if turn_on else "OFF"
-        send_with_budget(chat_id, f"🧬 Evolution: {state_str}")
-        return f"[Supervisor handled /evolve — evolution toggled {state_str}]\n"
+        state_str = "вкл" if turn_on else "выкл"
+        send_with_budget(chat_id, t("evolve_state", state=state_str))
+        return True
 
     if lowered.startswith("/bg"):
         parts = lowered.split()
         action = parts[1] if len(parts) > 1 else "status"
         if action in ("start", "on", "1"):
             result = _consciousness.start()
-            send_with_budget(chat_id, f"🧠 {result}")
+            send_with_budget(chat_id, t("consciousness_via_tool", result=result))
         elif action in ("stop", "off", "0"):
             result = _consciousness.stop()
-            send_with_budget(chat_id, f"🧠 {result}")
+            send_with_budget(chat_id, t("consciousness_via_tool", result=result))
         else:
-            bg_status = "running" if _consciousness.is_running else "stopped"
-            send_with_budget(chat_id, f"🧠 Background consciousness: {bg_status}")
-        return f"[Supervisor handled /bg {action}]\n"
+            bg_status = t("bg_state_running") if _consciousness.is_running else t("bg_state_stopped")
+            send_with_budget(chat_id, t("bg_status", status=bg_status))
+        return True
 
     return ""
 
@@ -638,10 +704,32 @@ _ACTIVE_MODE_SEC: int = 300  # 5 min of activity = active polling mode
 
 # Auto-start background consciousness (creator's policy: always on by default)
 try:
-    _consciousness.start()
-    log.info("🧠 Background consciousness auto-started (default: always on)")
+    if DRAGO_BG_AUTOSTART:
+        _consciousness.start()
+        log.info("🧠 Background consciousness auto-started")
+    else:
+        log.info("🧠 Background consciousness autostart disabled")
 except Exception as e:
     log.warning("consciousness auto-start failed: %s", e)
+
+try:
+    _runtime_state = load_state()
+    _runtime_dirty = False
+    _autostart_enabled = False
+    _runtime_owner_chat_id = _runtime_state.get("owner_chat_id")
+    if str(_runtime_state.get("locale") or "").strip().lower() != DRAGO_LOCALE:
+        _runtime_state["locale"] = DRAGO_LOCALE
+        _runtime_dirty = True
+    if DRAGO_EVOLUTION_AUTOSTART and _runtime_owner_chat_id and not bool(_runtime_state.get("evolution_mode_enabled")):
+        _runtime_state["evolution_mode_enabled"] = True
+        _runtime_dirty = True
+        _autostart_enabled = True
+    if _runtime_dirty:
+        save_state(_runtime_state)
+    if _autostart_enabled:
+        send_with_budget(int(_runtime_owner_chat_id), t("evolution_autostart_on"))
+except Exception:
+    log.debug("Failed to apply locale/evolution autostart defaults", exc_info=True)
 
 while True:
     loop_started_ts = time.time()
@@ -717,9 +805,15 @@ while True:
             st["owner_id"] = user_id
             st["owner_chat_id"] = chat_id
             st["last_owner_message_at"] = now_iso
+            st["locale"] = DRAGO_LOCALE
+            evolution_autostart_enabled = bool(DRAGO_EVOLUTION_AUTOSTART)
+            if evolution_autostart_enabled:
+                st["evolution_mode_enabled"] = True
             save_state(st)
             log_chat("in", chat_id, user_id, text)
-            send_with_budget(chat_id, "✅ Owner registered. Drago online.")
+            send_with_budget(chat_id, t("owner_registered_online"))
+            if evolution_autostart_enabled:
+                send_with_budget(chat_id, t("evolution_autostart_on"))
             continue
 
         if user_id != int(st.get("owner_id")):
@@ -757,7 +851,7 @@ while True:
             if image_data:
                 if text:
                     agent.inject_message(text)
-                send_with_budget(chat_id, "📎 Photo received, but a task is in progress. Send again when I'm free.")
+                send_with_budget(chat_id, t("photo_busy"))
             elif text:
                 agent.inject_message(text)
 
@@ -835,7 +929,7 @@ while True:
                 if final_text:
                     agent.inject_message(final_text)
                 if _batched_image:
-                    send_with_budget(chat_id, "📎 Photo received, but a task is in progress. Send again when I'm free.")
+                    send_with_budget(chat_id, t("photo_busy"))
             else:
                 # Dispatch to direct chat handler
                 _consciousness.pause()

@@ -86,6 +86,22 @@ Telegram --> colab_launcher.py
 | `DRAGO_LLM_BACKEND` | No | `openrouter` (default), `openai` (for OpenAI-compatible endpoints), `ollama`/`lmstudio` aliases |
 | `DRAGO_LLM_BASE_URL` | No | `https://api.groq.com/openai/v1`, `http://127.0.0.1:11434/v1`, etc. |
 | `DRAGO_LLM_API_KEY` | No | Provider API key for non-OpenRouter backends (if needed) |
+| `DRAGO_FREE_ONLY` | No | `1` to force free-provider routing only (no paid API path) |
+| `DRAGO_GROQ_API_KEY` | No | Key for Groq free tier (OpenAI-compatible) |
+| `DRAGO_OPENROUTER_API_KEY` | No | Key for OpenRouter free models |
+| `DRAGO_OPENROUTER_FREE_MODEL_POOL` | No | Список `:free` моделей OpenRouter через запятую для ротации |
+| `DRAGO_CLOUDFLARE_API_TOKEN` | No | Token for Cloudflare Workers AI |
+| `DRAGO_CLOUDFLARE_ACCOUNT_ID` | No | Account ID for Cloudflare Workers AI endpoint |
+| `DRAGO_HF_TOKEN` | No | Token for Hugging Face Inference Providers |
+| `DRAGO_HF_MODEL_POOL` | No | Список HF моделей через запятую для ротации |
+| `DRAGO_CODEX_FALLBACK_ENABLED` | No | `1` enables `codex exec` fallback when free providers are exhausted |
+| `DRAGO_LOCALE` | No | Локаль владельца (`ru` по умолчанию) |
+| `DRAGO_FORCE_OWNER_LANGUAGE` | No | `1` принудительно отвечает владельцу на языке локали |
+| `DRAGO_BG_AUTOSTART` | No | `1` автозапуск фонового сознания при старте |
+| `DRAGO_EVOLUTION_AUTOSTART` | No | `1` автозапуск эволюции после регистрации владельца |
+| `DRAGO_BG_REPORT_INTERVAL_SEC` | No | Интервал фоновых отчётов в Telegram (сек) |
+| `DRAGO_MULTI_API_MODE` | No | Режим мульти-API роутера (`adaptive_rr`) |
+| `DRAGO_CODEX_FALLBACK_TASK_TYPES` | No | Типы задач для `codex exec` fallback (`evolution,task,consciousness`) |
 
 Если у вас сейчас нет денег на платные API, запускайте в bootstrap-режиме:
 - `TOTAL_BUDGET=0` (или минимальное значение),
@@ -175,15 +191,15 @@ By default, only the configured owner is trusted; messages from other users are 
 
 | Command | Description |
 |---------|-------------|
-| `/panic` | Emergency stop. Kills all workers and halts the process immediately. |
-| `/restart` | Soft restart. Saves state, kills workers, re-launches the process. |
-| `/status` | Shows active workers, task queue, and budget breakdown. |
-| `/evolve` | Start owner-approved evolution mode (attention: costs budget). |
-| `/evolve stop` | Stop evolution mode. Also accepts `/evolve off`. |
-| `/review` | Queue a deep review task (code, understanding, identity). |
-| `/bg start` | Start background consciousness loop. Also accepts `/bg on`. |
-| `/bg stop` | Stop background consciousness loop. Also accepts `/bg off`. |
-| `/bg` | Show background consciousness status (running/stopped). |
+| `/panic` | Экстренная остановка: завершает воркеры и останавливает процесс. |
+| `/restart` | Мягкий перезапуск: сохраняет state, завершает воркеры, перезапускает процесс. |
+| `/status` | Показывает состояние воркеров, очередь задач и бюджет. |
+| `/evolve` | Включает режим эволюции (учитывает бюджет). |
+| `/evolve stop` | Отключает режим эволюции. Также поддерживается `/evolve off`. |
+| `/review` | Ставит в очередь глубокое ревью (код, понимание, идентичность). |
+| `/bg start` | Запускает фоновое сознание. Также поддерживается `/bg on`. |
+| `/bg stop` | Останавливает фоновое сознание. Также поддерживается `/bg off`. |
+| `/bg` | Показывает статус фонового сознания. |
 
 All other messages are sent directly to the LLM (Principle 3: LLM-First).
 
@@ -228,6 +244,22 @@ Full text: [BIBLE.md](BIBLE.md)
 | `DRAGO_LLM_BACKEND` | Backend mode for LLM calls (`openrouter`, `openai`, `ollama`, `lmstudio`) |
 | `DRAGO_LLM_BASE_URL` | Custom base URL for OpenAI-compatible providers |
 | `DRAGO_LLM_API_KEY` | Provider key for non-OpenRouter backends |
+| `DRAGO_FREE_ONLY` | Enable free-only provider router (`1`/`0`) |
+| `DRAGO_GROQ_API_KEY` | Free Groq API key |
+| `DRAGO_OPENROUTER_API_KEY` | OpenRouter key for `:free` models |
+| `DRAGO_OPENROUTER_FREE_MODEL_POOL` | Comma-separated OpenRouter `:free` model pool |
+| `DRAGO_CLOUDFLARE_API_TOKEN` | Cloudflare Workers AI token |
+| `DRAGO_CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID (required for Workers AI endpoint) |
+| `DRAGO_HF_TOKEN` | Hugging Face Inference Providers token |
+| `DRAGO_HF_MODEL_POOL` | Comma-separated HF model pool |
+| `DRAGO_CODEX_FALLBACK_ENABLED` | Enable fallback via `codex exec` when all free providers are exhausted |
+| `DRAGO_LOCALE` | Owner locale (`ru` by default) |
+| `DRAGO_FORCE_OWNER_LANGUAGE` | Force owner-facing replies to locale language (`1`/`0`) |
+| `DRAGO_BG_AUTOSTART` | Auto-start background consciousness (`1`/`0`) |
+| `DRAGO_EVOLUTION_AUTOSTART` | Auto-enable evolution mode when owner is known (`1`/`0`) |
+| `DRAGO_BG_REPORT_INTERVAL_SEC` | Throttling interval for background Telegram reports |
+| `DRAGO_MULTI_API_MODE` | Multi-provider strategy (`adaptive_rr`) |
+| `DRAGO_CODEX_FALLBACK_TASK_TYPES` | Task types allowed for `codex exec` fallback |
 
 ### Optional Configuration (environment variables)
 
@@ -243,6 +275,15 @@ Full text: [BIBLE.md](BIBLE.md)
 | `DRAGO_BG_BUDGET_PCT` | `10` | Percentage of total budget allocated to background consciousness |
 | `DRAGO_MAX_ROUNDS` | `200` | Maximum LLM rounds per task |
 | `DRAGO_MODEL_FALLBACK_LIST` | `google/gemini-2.5-pro-preview,openai/o3,anthropic/claude-sonnet-4.6` | Fallback model chain for empty responses |
+| `DRAGO_FREE_PROVIDER_ORDER` | `groq,openrouter,cloudflare,hf` | Priority order for free-provider routing |
+| `DRAGO_FREE_PROVIDER_COOLDOWN_SEC` | `600` | Cooldown for exhausted free providers before retry |
+| `DRAGO_EVOLUTION_FAILURE_LIMIT` | `1` | Auto-pause threshold for consecutive failed evolution cycles |
+| `DRAGO_FREE_LAZY_MODE` | `1` | Ленивая эволюция: ждать reset лимитов free API вместо спама пустых циклов |
+| `DRAGO_FREE_LAZY_BUFFER_SEC` | `30` | Буфер после `cooldown_until` перед новым циклом |
+| `DRAGO_FREE_LAZY_NOTICE_INTERVAL_SEC` | `300` | Минимальный интервал уведомлений о режиме сна |
+| `DRAGO_BG_REPORT_INTERVAL_SEC` | `900` | Минимальный интервал фоновых отчётов в Telegram |
+| `DRAGO_MULTI_API_MODE` | `adaptive_rr` | Адаптивная ротация free API (без параллельного шардирования) |
+| `DRAGO_CODEX_FALLBACK_TASK_TYPES` | `evolution,task,consciousness` | Для каких типов задач разрешён `codex exec` fallback |
 
 ### Budget-friendly/Free LLM options
 
@@ -263,13 +304,28 @@ Full text: [BIBLE.md](BIBLE.md)
   - укажите endpoint, который даёт OpenAI-совместимый `chat/completions`
   - ключ в `DRAGO_LLM_API_KEY` (если требуется)
 
-Для `codex` CLI прямо как backend текущая архитектура Drago пока не подходит (у неё нет совместимого function-calling для текущего tool-loop), поэтому её стоит оставлять для отдельных задач, как отдельный исполнитель.
+### Free-only autonomous mode (auto-switch + codex fallback)
+
+Для полностью бесплатного цикла эволюции:
+
+- `DRAGO_FREE_ONLY=1`
+- `DRAGO_FREE_PROVIDER_ORDER=groq,openrouter,cloudflare,hf`
+- `DRAGO_FREE_PROVIDER_COOLDOWN_SEC=600`
+- ключи провайдеров: `DRAGO_GROQ_API_KEY`, `DRAGO_OPENROUTER_API_KEY`, `DRAGO_CLOUDFLARE_API_TOKEN` + `DRAGO_CLOUDFLARE_ACCOUNT_ID`, `DRAGO_HF_TOKEN`
+- пулы моделей: `DRAGO_OPENROUTER_FREE_MODEL_POOL`, `DRAGO_HF_MODEL_POOL`, `DRAGO_GROQ_MODEL_POOL`, `DRAGO_CLOUDFLARE_MODEL_POOL`
+- `DRAGO_CODEX_FALLBACK_ENABLED=1` для fallback через `codex exec`, если все free-провайдеры недоступны
+- `DRAGO_FREE_LAZY_MODE=1` чтобы эволюция «засыпала» до конца cooldown при исчерпании квот free API
+
+В этом режиме Drago автоматически переключается на следующий бесплатный провайдер по `429/quota` без создания нового псевдо-цикла.
+
+Для `codex` CLI как основной backend текущий tool-loop всё ещё не подходит (нет нативного function-calling совместимого контракта), поэтому он используется как fallback-исполнитель.
 
 Пример безопасного ручного запуска:
 
 ```bash
-codex exec --json --output-last-message /tmp/codex_last.txt "Внеси правки в README.md по задаче и верни diff."
-cat /tmp/codex_last.txt
+mkdir -p .drago_data/logs
+codex exec --json --output-last-message .drago_data/logs/codex_last.txt "Внеси минимальное улучшение в рамках задачи и верни итог."
+cat .drago_data/logs/codex_last.txt
 ```
 
 ---

@@ -86,6 +86,11 @@ def _build_runtime_section(env: Any, task: Dict[str, Any]) -> str:
         "git_head": git_sha,
         "git_branch": git_branch,
         "task": {"id": task.get("id"), "type": task.get("type")},
+        "language_policy": {
+            "locale": str(os.environ.get("DRAGO_LOCALE", "ru") or "ru"),
+            "force_owner_language": str(os.environ.get("DRAGO_FORCE_OWNER_LANGUAGE", "1")).strip().lower() in {"1", "true", "yes", "on", "y"},
+            "rule": "В ответах владельцу используй русский язык; код/команды/идентификаторы можно оставлять в оригинале.",
+        },
     }
     if budget_info:
         runtime_data["budget"] = budget_info

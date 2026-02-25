@@ -26,7 +26,7 @@ from drago.utils import (
     safe_relpath, truncate_for_log,
     get_git_info, sanitize_task_for_event,
 )
-from drago.llm import LLMClient, add_usage
+from drago.llm import LLMClient, FreeProvidersExhaustedError, add_usage
 from drago.tools import ToolRegistry
 from drago.tools.registry import ToolContext
 from drago.memory import Memory
@@ -183,7 +183,7 @@ class DragoAgent:
                 capture_output=True, text=True, timeout=10,
                 check=False,
             )
-            if branch_result.returncode != 0:
+            if branch_result.returncode != 0 or f"refs/heads/{self.env.branch_dev}" not in branch_result.stdout:
                 return {"status": "warning", "files": dirty_files, "auto_committed": False, "reason": "remote_branch_missing"}, 0
 
             if dirty_files:
@@ -450,6 +450,9 @@ class DragoAgent:
             "prompt_tokens": 0,
             "completion_tokens": 0,
             "rounds": 1,
+            "provider_name": "offline_local",
+            "provider_error_class": "",
+            "used_codex_fallback": False,
         }
 
         def _run(cmd: List[str]) -> subprocess.CompletedProcess[str]:
@@ -574,6 +577,27 @@ class DragoAgent:
         drive_logs = self.env.drive_path("logs")
         heartbeat_stop = self._start_task_heartbeat_loop(str(task.get("id") or ""))
         task_type_str = str(task.get("type") or "").lower()
+        evolution_head_before = ""
+
+        def _git_head_sha() -> str:
+            import subprocess
+            try:
+                res = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=str(self.env.repo_dir),
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                if res.returncode == 0:
+                    return res.stdout.strip()
+            except Exception:
+                log.debug("Failed to read HEAD sha", exc_info=True)
+            return ""
+
+        if task_type_str in ("evolution", "evolution_local"):
+            evolution_head_before = _git_head_sha()
 
         try:
             # --- Prepare task context ---
@@ -605,6 +629,56 @@ class DragoAgent:
                         initial_effort=initial_effort,
                         drive_root=self.env.drive_root,
                     )
+                except FreeProvidersExhaustedError as e:
+                    exhausted = [x for x in getattr(e, "exhausted_providers", []) if str(x).strip()]
+                    provider_error_class = str(getattr(e, "last_error_class", "all_free_providers_exhausted"))
+                    fallback_enabled = str(os.environ.get("DRAGO_CODEX_FALLBACK_ENABLED", "1")).strip().lower() in {"1", "true", "yes", "on", "y"}
+                    fallback_types_raw = str(
+                        os.environ.get("DRAGO_CODEX_FALLBACK_TASK_TYPES", "evolution,task,consciousness")
+                    )
+                    fallback_types = {
+                        x.strip().lower() for x in fallback_types_raw.split(",") if x.strip()
+                    }
+                    fallback_for_task_type = task_type_str in fallback_types
+
+                    if fallback_enabled and fallback_for_task_type:
+                        append_jsonl(
+                            drive_logs / "supervisor.jsonl",
+                            {
+                                "ts": utc_now_iso(),
+                                "type": "fallback_invoked_for_task_type",
+                                "task_id": str(task.get("id") or ""),
+                                "task_type": task_type_str,
+                                "provider_error_class": provider_error_class,
+                            },
+                        )
+                        from drago.codex_fallback import run_codex_fallback
+                        self._emit_progress("⚙️ Free providers exhausted. Running codex exec fallback.")
+                        text, usage, llm_trace = run_codex_fallback(
+                            repo_dir=self.env.repo_dir,
+                            drive_root=self.env.drive_root,
+                            task=task,
+                            exhausted_providers=exhausted,
+                            provider_error_class=provider_error_class,
+                        )
+                    else:
+                        exhausted_text = ", ".join(exhausted) if exhausted else "none"
+                        text = (
+                            "⚠️ Пул бесплатных провайдеров исчерпан, fallback недоступен.\n"
+                            f"exhausted_providers: {exhausted_text}\n"
+                            f"error_class: {provider_error_class}"
+                        )
+                        usage = {
+                            "cost": 0.0,
+                            "prompt_tokens": 0,
+                            "completion_tokens": 0,
+                            "rounds": 0,
+                            "provider_name": "",
+                            "provider_error_class": provider_error_class,
+                            "used_codex_fallback": False,
+                            "free_provider_exhausted": ",".join(exhausted),
+                        }
+                        llm_trace = {"assistant_notes": [text], "tool_calls": []}
                 except Exception as e:
                     tb = traceback.format_exc()
                     append_jsonl(drive_logs / "events.jsonl", {
@@ -617,6 +691,38 @@ class DragoAgent:
             # Empty response guard
             if not isinstance(text, str) or not text.strip():
                 text = "⚠️ Model returned an empty response. Try rephrasing your request."
+
+            # Evolution quality markers: supervisor uses these to decide whether
+            # a cycle was a real step forward or just a no-op/simulation.
+            if task_type_str in ("evolution", "evolution_local"):
+                evolution_head_after = _git_head_sha()
+                tool_calls = [
+                    tc for tc in (llm_trace.get("tool_calls") or [])
+                    if isinstance(tc, dict)
+                ]
+                code_tool_names = set(self.tools.CODE_TOOLS)
+                code_tool_calls = [
+                    tc for tc in tool_calls
+                    if str(tc.get("tool") or "") in code_tool_names
+                ]
+                code_tool_errors = sum(1 for tc in code_tool_calls if bool(tc.get("is_error")))
+                repo_push_success = any(
+                    str(tc.get("tool") or "") == "repo_commit_push"
+                    and not bool(tc.get("is_error"))
+                    and str(tc.get("result") or "").startswith("OK: committed and pushed")
+                    for tc in tool_calls
+                )
+                evolution_commit_created = bool(
+                    evolution_head_before
+                    and evolution_head_after
+                    and evolution_head_before != evolution_head_after
+                )
+                usage["evolution_commit_created"] = evolution_commit_created
+                usage["evolution_repo_push_success"] = repo_push_success
+                usage["evolution_code_tool_calls"] = len(code_tool_calls)
+                usage["evolution_code_tool_errors"] = int(code_tool_errors)
+                usage["evolution_head_before"] = evolution_head_before[:12]
+                usage["evolution_head_after"] = evolution_head_after[:12]
 
             # Emit events for supervisor
             self._emit_task_results(task, text, usage, llm_trace, start_time, drive_logs)
@@ -688,6 +794,17 @@ class DragoAgent:
             "prompt_tokens": int(usage.get("prompt_tokens") or 0),
             "completion_tokens": int(usage.get("completion_tokens") or 0),
             "total_rounds": int(usage.get("rounds") or 0),
+            "provider_name": str(usage.get("provider_name") or ""),
+            "provider_error_class": str(usage.get("provider_error_class") or ""),
+            "used_codex_fallback": bool(usage.get("used_codex_fallback")),
+            "free_provider_exhausted": str(usage.get("free_provider_exhausted") or ""),
+            "free_provider_stats": dict(usage.get("free_provider_stats") or {}),
+            "evolution_commit_created": bool(usage.get("evolution_commit_created")),
+            "evolution_repo_push_success": bool(usage.get("evolution_repo_push_success")),
+            "evolution_code_tool_calls": int(usage.get("evolution_code_tool_calls") or 0),
+            "evolution_code_tool_errors": int(usage.get("evolution_code_tool_errors") or 0),
+            "evolution_head_before": str(usage.get("evolution_head_before") or ""),
+            "evolution_head_after": str(usage.get("evolution_head_after") or ""),
             "local": bool(task.get("local")),
             "ts": utc_now_iso(),
         })
@@ -700,6 +817,17 @@ class DragoAgent:
             "total_rounds": int(usage.get("rounds") or 0),
             "prompt_tokens": int(usage.get("prompt_tokens") or 0),
             "completion_tokens": int(usage.get("completion_tokens") or 0),
+            "provider_name": str(usage.get("provider_name") or ""),
+            "provider_error_class": str(usage.get("provider_error_class") or ""),
+            "used_codex_fallback": bool(usage.get("used_codex_fallback")),
+            "free_provider_exhausted": str(usage.get("free_provider_exhausted") or ""),
+            "free_provider_stats": dict(usage.get("free_provider_stats") or {}),
+            "evolution_commit_created": bool(usage.get("evolution_commit_created")),
+            "evolution_repo_push_success": bool(usage.get("evolution_repo_push_success")),
+            "evolution_code_tool_calls": int(usage.get("evolution_code_tool_calls") or 0),
+            "evolution_code_tool_errors": int(usage.get("evolution_code_tool_errors") or 0),
+            "evolution_head_before": str(usage.get("evolution_head_before") or ""),
+            "evolution_head_after": str(usage.get("evolution_head_after") or ""),
             "local": bool(task.get("local")),
             "ts": utc_now_iso(),
         })
@@ -712,6 +840,17 @@ class DragoAgent:
             "total_rounds": int(usage.get("rounds") or 0),
             "prompt_tokens": int(usage.get("prompt_tokens") or 0),
             "completion_tokens": int(usage.get("completion_tokens") or 0),
+            "provider_name": str(usage.get("provider_name") or ""),
+            "provider_error_class": str(usage.get("provider_error_class") or ""),
+            "used_codex_fallback": bool(usage.get("used_codex_fallback")),
+            "free_provider_exhausted": str(usage.get("free_provider_exhausted") or ""),
+            "free_provider_stats": dict(usage.get("free_provider_stats") or {}),
+            "evolution_commit_created": bool(usage.get("evolution_commit_created")),
+            "evolution_repo_push_success": bool(usage.get("evolution_repo_push_success")),
+            "evolution_code_tool_calls": int(usage.get("evolution_code_tool_calls") or 0),
+            "evolution_code_tool_errors": int(usage.get("evolution_code_tool_errors") or 0),
+            "evolution_head_before": str(usage.get("evolution_head_before") or ""),
+            "evolution_head_after": str(usage.get("evolution_head_after") or ""),
             "local": bool(task.get("local")),
         })
 
@@ -726,6 +865,10 @@ class DragoAgent:
                 "result": text[:4000] if text else "",  # Truncate to avoid huge files
                 "cost_usd": round(float(usage.get("cost") or 0), 6),
                 "total_rounds": int(usage.get("rounds") or 0),
+                "provider_name": str(usage.get("provider_name") or ""),
+                "provider_error_class": str(usage.get("provider_error_class") or ""),
+                "used_codex_fallback": bool(usage.get("used_codex_fallback")),
+                "free_provider_stats": dict(usage.get("free_provider_stats") or {}),
                 "ts": utc_now_iso(),
             }
             result_file = results_dir / f"{task.get('id')}.json"

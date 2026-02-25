@@ -12,6 +12,12 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from drago.free_provider_router import (
+    FreeProviderRouter,
+    FreeProvidersExhaustedError,
+    classify_provider_error,
+)
+
 log = logging.getLogger(__name__)
 
 DEFAULT_LIGHT_MODEL = "google/gemini-3-pro-preview"
@@ -158,29 +164,40 @@ class LLMClient:
                 ):
                     self._api_key = "ollama"
             self._base_url = base_url or os.environ.get("DRAGO_LLM_BASE_URL", "") or _DEFAULT_OPENAI_BASE_URL
-        self._client = None
+        self._client_cache: Dict[Tuple[str, str], Any] = {}
+        self._free_router = FreeProviderRouter() if str(os.environ.get("DRAGO_FREE_ONLY", "0")).strip().lower() in {"1", "true", "yes", "on", "y"} else None
 
-    def _get_client(self):
-        if self._client is None:
-            from openai import OpenAI
-            self._client = OpenAI(
-                base_url=self._base_url,
-                api_key=self._api_key,
-                default_headers={
-                    "HTTP-Referer": "https://colab.research.google.com/",
-                    "X-Title": "Drago",
-                },
-            )
-        return self._client
+    def _get_client(self, base_url: str, api_key: str):
+        cache_key = (str(base_url), str(api_key))
+        cached = self._client_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        from openai import OpenAI
+        client = OpenAI(
+            base_url=base_url,
+            api_key=api_key,
+            default_headers={
+                "HTTP-Referer": "https://colab.research.google.com/",
+                "X-Title": "Drago",
+            },
+        )
+        self._client_cache[cache_key] = client
+        return client
 
-    def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
+    def _fetch_generation_cost(
+        self,
+        generation_id: str,
+        backend: str,
+        base_url: str,
+        api_key: str,
+    ) -> Optional[float]:
         """Fetch cost from OpenRouter Generation API as fallback."""
-        if self._backend != "openrouter":
+        if backend != "openrouter":
             return None
         try:
             import requests
-            url = f"{self._base_url.rstrip('/')}/generation?id={generation_id}"
-            resp = requests.get(url, headers={"Authorization": f"Bearer {self._api_key}"}, timeout=5)
+            url = f"{base_url.rstrip('/')}/generation?id={generation_id}"
+            resp = requests.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=5)
             if resp.status_code == 200:
                 data = resp.json().get("data") or {}
                 cost = data.get("total_cost") or data.get("usage", {}).get("cost")
@@ -188,7 +205,7 @@ class LLMClient:
                     return float(cost)
             # Generation might not be ready yet — retry once after short delay
             time.sleep(0.5)
-            resp = requests.get(url, headers={"Authorization": f"Bearer {self._api_key}"}, timeout=5)
+            resp = requests.get(url, headers={"Authorization": f"Bearer {api_key}"}, timeout=5)
             if resp.status_code == 200:
                 data = resp.json().get("data") or {}
                 cost = data.get("total_cost") or data.get("usage", {}).get("cost")
@@ -199,17 +216,20 @@ class LLMClient:
             pass
         return None
 
-    def chat(
+    def _chat_once(
         self,
+        *,
         messages: List[Dict[str, Any]],
         model: str,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        reasoning_effort: str = "medium",
-        max_tokens: int = 16384,
-        tool_choice: str = "auto",
+        tools: Optional[List[Dict[str, Any]]],
+        reasoning_effort: str,
+        max_tokens: int,
+        tool_choice: str,
+        backend: str,
+        base_url: str,
+        api_key: str,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
-        client = self._get_client()
+        client = self._get_client(base_url=base_url, api_key=api_key)
         effort = normalize_reasoning_effort(reasoning_effort)
 
         kwargs: Dict[str, Any] = {
@@ -217,12 +237,10 @@ class LLMClient:
             "messages": messages,
             "max_tokens": max_tokens,
         }
-        if self._backend == "openrouter":
+        if backend == "openrouter":
             extra_body: Dict[str, Any] = {
                 "reasoning": {"effort": effort, "exclude": True},
             }
-
-            # Pin Anthropic models to Anthropic provider for prompt caching
             if model.startswith("anthropic/"):
                 extra_body["provider"] = {
                     "order": ["Anthropic"],
@@ -230,17 +248,13 @@ class LLMClient:
                     "require_parameters": True,
                 }
             kwargs["extra_body"] = extra_body
-
-        if self._backend != "openrouter":
+        else:
             kwargs["temperature"] = 0
-            # Keep compatibility with OpenAI-compatible backends that may ignore reasoning.
 
         if tools:
-            # Add cache_control to last tool for Anthropic prompt caching
-            # This caches all tool schemas (they never change between calls)
-            tools_with_cache = [t for t in tools]  # shallow copy
+            tools_with_cache = [t for t in tools]
             if tools_with_cache:
-                last_tool = {**tools_with_cache[-1]}  # copy last tool
+                last_tool = {**tools_with_cache[-1]}
                 last_tool["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
                 tools_with_cache[-1] = last_tool
             kwargs["tools"] = tools_with_cache
@@ -252,32 +266,129 @@ class LLMClient:
         choices = resp_dict.get("choices") or [{}]
         msg = (choices[0] if choices else {}).get("message") or {}
 
-        # Extract cached_tokens from prompt_tokens_details if available
         if not usage.get("cached_tokens"):
             prompt_details = usage.get("prompt_tokens_details") or {}
             if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens"):
                 usage["cached_tokens"] = int(prompt_details["cached_tokens"])
 
-        # Extract cache_write_tokens from prompt_tokens_details if available
-        # OpenRouter: "cache_write_tokens"
-        # Native Anthropic: "cache_creation_tokens" or "cache_creation_input_tokens"
         if not usage.get("cache_write_tokens"):
             prompt_details_for_write = usage.get("prompt_tokens_details") or {}
             if isinstance(prompt_details_for_write, dict):
-                cache_write = (prompt_details_for_write.get("cache_write_tokens")
-                              or prompt_details_for_write.get("cache_creation_tokens")
-                              or prompt_details_for_write.get("cache_creation_input_tokens"))
+                cache_write = (
+                    prompt_details_for_write.get("cache_write_tokens")
+                    or prompt_details_for_write.get("cache_creation_tokens")
+                    or prompt_details_for_write.get("cache_creation_input_tokens")
+                )
                 if cache_write:
                     usage["cache_write_tokens"] = int(cache_write)
 
-        # Ensure cost is present in usage (OpenRouter includes it, but fallback if missing)
         if not usage.get("cost"):
             gen_id = resp_dict.get("id") or ""
             if gen_id:
-                cost = self._fetch_generation_cost(gen_id)
+                cost = self._fetch_generation_cost(
+                    generation_id=gen_id,
+                    backend=backend,
+                    base_url=base_url,
+                    api_key=api_key,
+                )
                 if cost is not None:
                     usage["cost"] = cost
 
+        return msg, usage
+
+    def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        model: str,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        reasoning_effort: str = "medium",
+        max_tokens: int = 16384,
+        tool_choice: str = "auto",
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
+        if self._free_router and self._free_router.enabled:
+            exhausted_providers: List[str] = []
+            exhausted_models: Dict[str, List[str]] = {}
+            provider_events: List[Dict[str, str]] = []
+            while True:
+                try:
+                    selection, selection_event = self._free_router.select(
+                        exclude=exhausted_providers,
+                        exclude_models=exhausted_models,
+                    )
+                except FreeProvidersExhaustedError as e:
+                    if provider_events:
+                        e.provider_events.extend(provider_events)
+                    raise
+
+                if selection_event:
+                    provider_events.append(selection_event)
+                effective_model = selection.model or model
+
+                try:
+                    msg, usage = self._chat_once(
+                        messages=messages,
+                        model=effective_model,
+                        tools=tools,
+                        reasoning_effort=reasoning_effort,
+                        max_tokens=max_tokens,
+                        tool_choice=tool_choice,
+                        backend=selection.backend,
+                        base_url=selection.base_url,
+                        api_key=selection.api_key,
+                    )
+                    self._free_router.mark_success(selection.name, model=effective_model)
+                    snapshot = self._free_router.state_snapshot()
+                    usage["_provider_name"] = selection.name
+                    usage["_provider_error_class"] = ""
+                    usage["_provider_model"] = effective_model
+                    usage["_provider_failures"] = snapshot.get("failures") or {}
+                    usage["_provider_cooldown_until"] = snapshot.get("cooldown_until") or {}
+                    usage["_provider_stats"] = snapshot.get("stats") or {}
+                    usage["_provider_model_failures"] = snapshot.get("model_failures") or {}
+                    usage["_provider_model_cooldown_until"] = snapshot.get("model_cooldown_until") or {}
+                    usage["_provider_model_stats"] = snapshot.get("model_stats") or {}
+                    if provider_events:
+                        usage["_provider_events"] = provider_events
+                    return msg, usage
+                except Exception as e:
+                    error_class, is_quota = classify_provider_error(e)
+                    if is_quota:
+                        provider_events.append(
+                            self._free_router.mark_exhausted(
+                                selection.name,
+                                error_class,
+                                model=effective_model,
+                            )
+                        )
+                        per_provider = exhausted_models.setdefault(selection.name, [])
+                        if effective_model not in per_provider:
+                            per_provider.append(effective_model)
+                    else:
+                        provider_events.append(
+                            self._free_router.mark_failure(
+                                selection.name,
+                                error_class,
+                                model=effective_model,
+                            )
+                        )
+                        exhausted_providers.append(selection.name)
+                    continue
+
+        msg, usage = self._chat_once(
+            messages=messages,
+            model=model,
+            tools=tools,
+            reasoning_effort=reasoning_effort,
+            max_tokens=max_tokens,
+            tool_choice=tool_choice,
+            backend=self._backend,
+            base_url=self._base_url,
+            api_key=self._api_key,
+        )
+        usage["_provider_name"] = self._backend
+        usage["_provider_error_class"] = ""
+        usage["_provider_model"] = model
         return msg, usage
 
     def vision_query(

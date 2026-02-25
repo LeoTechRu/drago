@@ -138,6 +138,8 @@ def ensure_state_defaults(st: Dict[str, Any]) -> Dict[str, Any]:
     st.setdefault("current_sha", None)
     st.setdefault("last_owner_message_at", "")
     st.setdefault("last_evolution_task_at", "")
+    st.setdefault("evolution_sleep_until", "")
+    st.setdefault("last_evolution_sleep_notice_at", "")
     st.setdefault("budget_messages_since_report", 0)
     st.setdefault("evolution_mode_enabled", False)
     st.setdefault("evolution_cycle", 0)
@@ -146,6 +148,16 @@ def ensure_state_defaults(st: Dict[str, Any]) -> Dict[str, Any]:
     st.setdefault("budget_drift_pct", None)
     st.setdefault("budget_drift_alert", False)
     st.setdefault("evolution_consecutive_failures", 0)
+    st.setdefault("locale", "ru")
+    st.setdefault("last_bg_report_at", "")
+    st.setdefault("last_bg_report_text", "")
+    st.setdefault("last_evolution_report_at", "")
+    st.setdefault("last_evolution_report_task_id", "")
+    st.setdefault("free_provider_current", "")
+    st.setdefault("free_provider_failures", {})
+    st.setdefault("free_provider_cooldown_until", {})
+    st.setdefault("free_provider_last_switch_at", "")
+    st.setdefault("free_provider_stats", {})
     for legacy_key in ("approvals", "idle_cursor", "idle_stats", "last_idle_task_at",
                         "last_auto_review_at", "last_review_task_id", "session_daily_snapshot"):
         st.pop(legacy_key, None)
@@ -552,25 +564,25 @@ def status_text(workers_dict: Dict[int, Any], pending_list: list, running_dict: 
     st = load_state()
     now = time.time()
     lines = []
-    lines.append(f"owner_id: {st.get('owner_id')}")
-    lines.append(f"session_id: {st.get('session_id')}")
-    lines.append(f"version: {st.get('current_branch')}@{(st.get('current_sha') or '')[:8]}")
+    lines.append(f"владелец_id: {st.get('owner_id')}")
+    lines.append(f"сессия_id: {st.get('session_id')}")
+    lines.append(f"версия: {st.get('current_branch')}@{(st.get('current_sha') or '')[:8]}")
     busy_count = sum(1 for w in workers_dict.values() if getattr(w, 'busy_task_id', None) is not None)
-    lines.append(f"workers: {len(workers_dict)} (busy: {busy_count})")
-    lines.append(f"pending: {len(pending_list)}")
-    lines.append(f"running: {len(running_dict)}")
+    lines.append(f"воркеры: {len(workers_dict)} (занято: {busy_count})")
+    lines.append(f"в_очереди: {len(pending_list)}")
+    lines.append(f"в_работе: {len(running_dict)}")
     if pending_list:
         preview = []
         for t in pending_list[:10]:
             preview.append(
                 f"{t.get('id')}:{t.get('type')}:pr{t.get('priority')}:a{int(t.get('_attempt') or 1)}")
-        lines.append("pending_queue: " + ", ".join(preview))
+        lines.append("очередь: " + ", ".join(preview))
     if running_dict:
-        lines.append("running_ids: " + ", ".join(list(running_dict.keys())[:10]))
+        lines.append("id_в_работе: " + ", ".join(list(running_dict.keys())[:10]))
     busy = [f"{getattr(w, 'wid', '?')}:{getattr(w, 'busy_task_id', '?')}"
             for w in workers_dict.values() if getattr(w, 'busy_task_id', None)]
     if busy:
-        lines.append("busy: " + ", ".join(busy))
+        lines.append("занятые: " + ", ".join(busy))
     if running_dict:
         details = []
         for task_id, meta in list(running_dict.items())[:10]:
@@ -583,21 +595,24 @@ def status_text(workers_dict: Dict[int, Any], pending_list: list, running_dict: 
                 f"{task_id}:type={task.get('type')} pr={task.get('priority')} "
                 f"attempt={meta.get('attempt')} runtime={runtime_sec}s hb_lag={hb_lag_sec}s")
         if details:
-            lines.append("running_details:")
+            lines.append("детали_выполнения:")
             lines.extend([f"  - {d}" for d in details])
     if running_dict and busy_count == 0:
-        lines.append("queue_warning: running>0 while busy=0")
+        lines.append("предупреждение_очереди: running>0 при busy=0")
     spent = float(st.get("spent_usd") or 0.0)
     pct = budget_pct(st)
     budget_remaining_usd = max(0, TOTAL_BUDGET_LIMIT - spent)
-    lines.append(f"budget_total: ${TOTAL_BUDGET_LIMIT:.0f}")
-    lines.append(f"budget_remaining: ${budget_remaining_usd:.0f}")
+    lines.append(f"бюджет_всего: ${TOTAL_BUDGET_LIMIT:.0f}")
+    lines.append(f"бюджет_остаток: ${budget_remaining_usd:.0f}")
     if pct > 0:
-        lines.append(f"spent_usd: ${spent:.2f} ({pct:.1f}% of budget)")
+        lines.append(f"потрачено_usd: ${spent:.2f} ({pct:.1f}% бюджета)")
     else:
-        lines.append(f"spent_usd: ${spent:.2f}")
-    lines.append(f"spent_calls: {st.get('spent_calls')}")
-    lines.append(f"prompt_tokens: {st.get('spent_tokens_prompt')}, completion_tokens: {st.get('spent_tokens_completion')}, cached_tokens: {st.get('spent_tokens_cached')}")
+        lines.append(f"потрачено_usd: ${spent:.2f}")
+    lines.append(f"вызовов: {st.get('spent_calls')}")
+    lines.append(
+        f"токены: prompt={st.get('spent_tokens_prompt')}, "
+        f"completion={st.get('spent_tokens_completion')}, cached={st.get('spent_tokens_cached')}"
+    )
 
     # Add budget breakdown by category
     breakdown = budget_breakdown(st)
@@ -606,7 +621,7 @@ def status_text(workers_dict: Dict[int, Any], pending_list: list, running_dict: 
         sorted_categories = sorted(breakdown.items(), key=lambda x: x[1], reverse=True)
         breakdown_parts = [f"{cat}=${cost:.2f}" for cat, cost in sorted_categories if cost > 0]
         if breakdown_parts:
-            lines.append(f"budget_breakdown: {', '.join(breakdown_parts)}")
+            lines.append(f"разбивка_бюджета: {', '.join(breakdown_parts)}")
 
     # Display budget drift if available
     drift_pct = st.get("budget_drift_pct")
@@ -621,29 +636,35 @@ def status_text(workers_dict: Dict[int, Any], pending_list: list, running_dict: 
 
             drift_icon = " ⚠️" if st.get("budget_drift_alert") else ""
             lines.append(
-                f"budget_drift: {drift_pct:.1f}%{drift_icon} "
-                f"(tracked: ${our_delta:.2f} vs OpenRouter: ${or_delta:.2f})"
+                f"дрейф_бюджета: {drift_pct:.1f}%{drift_icon} "
+                f"(учтено: ${our_delta:.2f} vs OpenRouter: ${or_delta:.2f})"
             )
 
     # Model breakdown
     models = model_breakdown(st)
     if models:
         sorted_models = sorted(models.items(), key=lambda x: x[1]["cost"], reverse=True)
-        lines.append("model_breakdown:")
+        lines.append("разбивка_по_моделям:")
         for model_name, stats in sorted_models:
             if stats["cost"] > 0 or stats["calls"] > 0:
                 cost = stats["cost"]
                 calls = int(stats["calls"])
                 pt = int(stats["prompt_tokens"])
                 ct = int(stats["completion_tokens"])
-                lines.append(f"  {model_name}: ${cost:.2f} ({calls} calls, {pt:,}p/{ct:,}c tok)")
+                lines.append(f"  {model_name}: ${cost:.2f} ({calls} вызовов, {pt:,}p/{ct:,}c токенов)")
 
     lines.append(
-        "evolution: "
+        "эволюция: "
         + f"enabled={int(bool(st.get('evolution_mode_enabled')))}, "
         + f"cycle={int(st.get('evolution_cycle') or 0)}")
-    lines.append(f"last_owner_message_at: {st.get('last_owner_message_at') or '-'}")
-    lines.append(f"timeouts: soft={soft_timeout_sec}s, hard={hard_timeout_sec}s")
+    free_current = str(st.get("free_provider_current") or "-")
+    lines.append(f"текущий_free_provider: {free_current}")
+    free_failures = st.get("free_provider_failures") or {}
+    if isinstance(free_failures, dict) and free_failures:
+        parts = [f"{k}={int(v)}" for k, v in sorted(free_failures.items())]
+        lines.append(f"ошибки_free_provider: {', '.join(parts)}")
+    lines.append(f"последнее_сообщение_владельца: {st.get('last_owner_message_at') or '-'}")
+    lines.append(f"таймауты: soft={soft_timeout_sec}s, hard={hard_timeout_sec}s")
     return "\n".join(lines)
 
 

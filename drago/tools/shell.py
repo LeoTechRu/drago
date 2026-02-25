@@ -62,11 +62,17 @@ def _run_shell(ctx: ToolContext, cmd, cwd: str = "") -> str:
         return "⚠️ SHELL_ARG_ERROR: cmd must be a list of strings."
     cmd = [str(x) for x in cmd]
 
-    work_dir = ctx.repo_dir
+    repo_root = ctx.repo_dir.resolve()
+    work_dir = repo_root
     if cwd and cwd.strip() not in ("", ".", "./"):
-        candidate = (ctx.repo_dir / cwd).resolve()
-        if candidate.exists() and candidate.is_dir():
-            work_dir = candidate
+        candidate = (repo_root / cwd).resolve()
+        try:
+            candidate.relative_to(repo_root)
+        except ValueError:
+            log.warning("run_shell: cwd %s escapes repo root, ignoring", cwd)
+        else:
+            if candidate.exists() and candidate.is_dir():
+                work_dir = candidate
 
     try:
         res = subprocess.run(

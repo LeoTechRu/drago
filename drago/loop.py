@@ -18,102 +18,18 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import logging
 
-from drago.llm import LLMClient, normalize_reasoning_effort, add_usage
+from drago.llm import (
+    LLMClient,
+    FreeProvidersExhaustedError,
+    normalize_reasoning_effort,
+    add_usage,
+)
+from drago.loop_cost import estimate_cost as _estimate_cost
 from drago.tools.registry import ToolRegistry
 from drago.context import compact_tool_history, compact_tool_history_llm
 from drago.utils import utc_now_iso, append_jsonl, truncate_for_log, sanitize_tool_args_for_log, sanitize_tool_result_for_log, estimate_tokens
 
 log = logging.getLogger(__name__)
-
-# Pricing from OpenRouter API (2026-02-17). Update periodically via /api/v1/models.
-_MODEL_PRICING_STATIC = {
-    "anthropic/claude-opus-4.6": (5.0, 0.5, 25.0),
-    "anthropic/claude-opus-4": (15.0, 1.5, 75.0),
-    "anthropic/claude-sonnet-4": (3.0, 0.30, 15.0),
-    "anthropic/claude-sonnet-4.6": (3.0, 0.30, 15.0),
-    "anthropic/claude-sonnet-4.5": (3.0, 0.30, 15.0),
-    "openai/o3": (2.0, 0.50, 8.0),
-    "openai/o3-pro": (20.0, 1.0, 80.0),
-    "openai/o4-mini": (1.10, 0.275, 4.40),
-    "openai/gpt-4.1": (2.0, 0.50, 8.0),
-    "openai/gpt-5.2": (1.75, 0.175, 14.0),
-    "openai/gpt-5.2-codex": (1.75, 0.175, 14.0),
-    "google/gemini-2.5-pro-preview": (1.25, 0.125, 10.0),
-    "google/gemini-3-pro-preview": (2.0, 0.20, 12.0),
-    "x-ai/grok-3-mini": (0.30, 0.03, 0.50),
-    "qwen/qwen3.5-plus-02-15": (0.40, 0.04, 2.40),
-}
-
-_pricing_fetched = False
-_cached_pricing = None
-_pricing_lock = threading.Lock()
-
-def _get_pricing() -> Dict[str, Tuple[float, float, float]]:
-    """
-    Lazy-load pricing. On first call, attempts to fetch from OpenRouter API.
-    Falls back to static pricing if fetch fails.
-    Thread-safe via module-level lock.
-    """
-    global _pricing_fetched, _cached_pricing
-
-    # Fast path: already fetched (read without lock for performance)
-    if _pricing_fetched:
-        return _cached_pricing or _MODEL_PRICING_STATIC
-
-    if os.getenv("DRAGO_LLM_BACKEND", "openrouter").strip().lower() != "openrouter":
-        _pricing_fetched = True
-        _cached_pricing = dict(_MODEL_PRICING_STATIC)
-        return _cached_pricing
-
-    # Slow path: fetch pricing (lock required)
-    with _pricing_lock:
-        # Double-check after acquiring lock (another thread may have fetched)
-        if _pricing_fetched:
-            return _cached_pricing or _MODEL_PRICING_STATIC
-
-        _pricing_fetched = True
-        _cached_pricing = dict(_MODEL_PRICING_STATIC)
-
-        try:
-            from drago.llm import fetch_openrouter_pricing
-            _live = fetch_openrouter_pricing()
-            if _live and len(_live) > 5:
-                _cached_pricing.update(_live)
-        except Exception as e:
-            import logging as _log
-            _log.getLogger(__name__).warning("Failed to sync pricing from OpenRouter: %s", e)
-            # Reset flag so we retry next time
-            _pricing_fetched = False
-
-        return _cached_pricing
-
-def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int,
-                   cached_tokens: int = 0, cache_write_tokens: int = 0) -> float:
-    """Estimate cost from token counts using known pricing. Returns 0 if model unknown."""
-    model_pricing = _get_pricing()
-    # Try exact match first
-    pricing = model_pricing.get(model)
-    if not pricing:
-        # Try longest prefix match
-        best_match = None
-        best_length = 0
-        for key, val in model_pricing.items():
-            if model and model.startswith(key):
-                if len(key) > best_length:
-                    best_match = val
-                    best_length = len(key)
-        pricing = best_match
-    if not pricing:
-        return 0.0
-    input_price, cached_price, output_price = pricing
-    # Non-cached input tokens = prompt_tokens - cached_tokens
-    regular_input = max(0, prompt_tokens - cached_tokens)
-    cost = (
-        regular_input * input_price / 1_000_000
-        + cached_tokens * cached_price / 1_000_000
-        + completion_tokens * output_price / 1_000_000
-    )
-    return round(cost, 6)
 
 READ_ONLY_PARALLEL_TOOLS = frozenset({
     "repo_read", "repo_list",
@@ -856,6 +772,48 @@ def _call_llm_with_retry(
             resp_msg, usage = llm.chat(**kwargs)
             msg = resp_msg
             add_usage(accumulated_usage, usage)
+            provider_name = str(usage.get("_provider_name") or "").strip()
+            provider_error_class = str(usage.get("_provider_error_class") or "").strip()
+            provider_model = str(usage.get("_provider_model") or "").strip()
+            if provider_name:
+                accumulated_usage["provider_name"] = provider_name
+            if provider_error_class:
+                accumulated_usage["provider_error_class"] = provider_error_class
+            if provider_model:
+                accumulated_usage["provider_model"] = provider_model
+            provider_events = usage.get("_provider_events") or []
+            if provider_events:
+                for pevt in provider_events:
+                    if not isinstance(pevt, dict):
+                        continue
+                    append_jsonl(
+                        drive_logs / "supervisor.jsonl",
+                        {
+                            "ts": utc_now_iso(),
+                            "type": str(pevt.get("type") or "free_provider_event"),
+                            "task_id": task_id,
+                            "round": round_idx,
+                            **pevt,
+                        },
+                    )
+            provider_failures = usage.get("_provider_failures")
+            provider_cooldowns = usage.get("_provider_cooldown_until")
+            provider_stats = usage.get("_provider_stats")
+            provider_model_failures = usage.get("_provider_model_failures")
+            provider_model_cooldowns = usage.get("_provider_model_cooldown_until")
+            provider_model_stats = usage.get("_provider_model_stats")
+            if isinstance(provider_failures, dict):
+                accumulated_usage["free_provider_failures"] = dict(provider_failures)
+            if isinstance(provider_cooldowns, dict):
+                accumulated_usage["free_provider_cooldown_until"] = dict(provider_cooldowns)
+            if isinstance(provider_stats, dict):
+                accumulated_usage["free_provider_stats"] = dict(provider_stats)
+            if isinstance(provider_model_failures, dict):
+                accumulated_usage["free_provider_model_failures"] = dict(provider_model_failures)
+            if isinstance(provider_model_cooldowns, dict):
+                accumulated_usage["free_provider_model_cooldown_until"] = dict(provider_model_cooldowns)
+            if isinstance(provider_model_stats, dict):
+                accumulated_usage["free_provider_model_stats"] = dict(provider_model_stats)
 
             # Calculate cost and emit event for EVERY attempt (including retries)
             cost = float(usage.get("cost") or 0)
@@ -913,6 +871,36 @@ def _call_llm_with_retry(
             append_jsonl(drive_logs / "events.jsonl", _round_event)
             return msg, cost
 
+        except FreeProvidersExhaustedError as e:
+            exhausted = [x for x in getattr(e, "exhausted_providers", []) if str(x).strip()]
+            accumulated_usage["provider_error_class"] = str(getattr(e, "last_error_class", "all_free_providers_exhausted"))
+            if exhausted:
+                accumulated_usage["free_provider_exhausted"] = ",".join(exhausted)
+            append_jsonl(
+                drive_logs / "supervisor.jsonl",
+                {
+                    "ts": utc_now_iso(),
+                    "type": "free_provider_exhausted",
+                    "task_id": task_id,
+                    "round": round_idx,
+                    "exhausted": exhausted,
+                    "error_class": str(getattr(e, "last_error_class", "all_free_providers_exhausted")),
+                    "reasons": getattr(e, "unavailable_reasons", {}),
+                },
+            )
+            for pevt in getattr(e, "provider_events", []) or []:
+                if isinstance(pevt, dict):
+                    append_jsonl(
+                        drive_logs / "supervisor.jsonl",
+                        {
+                            "ts": utc_now_iso(),
+                            "type": str(pevt.get("type") or "free_provider_event"),
+                            "task_id": task_id,
+                            "round": round_idx,
+                            **pevt,
+                        },
+                    )
+            raise
         except Exception as e:
             last_error = e
             append_jsonl(drive_logs / "events.jsonl", {

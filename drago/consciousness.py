@@ -84,21 +84,21 @@ class BackgroundConsciousness:
 
     def start(self) -> str:
         if self.is_running:
-            return "Background consciousness is already running."
+            return "Фоновое сознание уже запущено."
         self._running = True
         self._paused = False
         self._stop_event.clear()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._thread.start()
-        return "Background consciousness started."
+        return "Фоновое сознание запущено."
 
     def stop(self) -> str:
         if not self.is_running:
-            return "Background consciousness is not running."
+            return "Фоновое сознание не запущено."
         self._running = False
         self._stop_event.set()
         self._wakeup_event.set()  # Unblock sleep
-        return "Background consciousness stopping."
+        return "Останавливаю фоновое сознание."
 
     def pause(self) -> None:
         """Pause during task execution to avoid budget contention."""
@@ -152,6 +152,7 @@ class BackgroundConsciousness:
                     "error": repr(e),
                     "traceback": traceback.format_exc()[:1500],
                 })
+                self._emit_bg_cycle_error(repr(e))
                 self._next_wakeup_sec = min(
                     self._next_wakeup_sec * 2, 1800
                 )
@@ -278,6 +279,12 @@ class BackgroundConsciousness:
                 "rounds": round_idx,
                 "model": model,
             })
+            self._emit_bg_cycle_report(
+                rounds=max(1, round_idx),
+                cost_usd=total_cost,
+                preview=final_content,
+                pending_events=all_pending_events,
+            )
 
         except Exception as e:
             append_jsonl(self._drive_root / "logs" / "events.jsonl", {
@@ -285,6 +292,7 @@ class BackgroundConsciousness:
                 "type": "consciousness_llm_error",
                 "error": repr(e),
             })
+            self._emit_bg_cycle_error(repr(e))
 
     # -------------------------------------------------------------------
     # Context building (lightweight)
@@ -356,10 +364,68 @@ class BackgroundConsciousness:
 
         # Show current model
         runtime_lines.append(f"Current model: {self._model}")
+        locale = str(os.environ.get("DRAGO_LOCALE", "ru") or "ru").strip().lower() or "ru"
+        force_owner_lang = str(os.environ.get("DRAGO_FORCE_OWNER_LANGUAGE", "1")).strip().lower() in {"1", "true", "yes", "on", "y"}
+        runtime_lines.append(f"Owner locale: {locale}")
+        runtime_lines.append(f"Force owner language: {int(force_owner_lang)}")
 
         parts.append("## Runtime\n\n" + "\n".join(runtime_lines))
 
         return "\n\n".join(parts)
+
+    def _emit_bg_cycle_report(
+        self,
+        *,
+        rounds: int,
+        cost_usd: float,
+        preview: str,
+        pending_events: List[Dict[str, Any]],
+    ) -> None:
+        if self._event_queue is None:
+            return
+        significant_event_types = {
+            "schedule_task",
+            "review_request",
+            "restart_request",
+            "send_message",
+        }
+        seen_types = []
+        for evt in pending_events:
+            if not isinstance(evt, dict):
+                continue
+            et = str(evt.get("type") or "").strip()
+            if et:
+                seen_types.append(et)
+        significant = any(et in significant_event_types for et in seen_types)
+        preview_text = str(preview or "").strip().replace("\n", " ")
+        if not preview_text and seen_types:
+            preview_text = "События цикла: " + ", ".join(seen_types[:3])
+        if not preview_text:
+            preview_text = "Фоновый цикл завершён."
+        preview_text = preview_text[:240]
+        try:
+            self._event_queue.put({
+                "type": "bg_cycle_done",
+                "ts": utc_now_iso(),
+                "rounds": int(rounds),
+                "cost_usd": float(cost_usd),
+                "preview": preview_text,
+                "significant": bool(significant),
+            })
+        except Exception:
+            log.debug("Failed to emit bg_cycle_done event", exc_info=True)
+
+    def _emit_bg_cycle_error(self, error: str) -> None:
+        if self._event_queue is None:
+            return
+        try:
+            self._event_queue.put({
+                "type": "bg_cycle_error",
+                "ts": utc_now_iso(),
+                "error": str(error or "unknown_error")[:500],
+            })
+        except Exception:
+            log.debug("Failed to emit bg_cycle_error event", exc_info=True)
 
     # -------------------------------------------------------------------
     # Tool registry (separate instance for consciousness, not shared with agent)

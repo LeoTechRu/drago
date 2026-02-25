@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from supervisor.state import load_state, append_jsonl
 from supervisor import git_ops
 from supervisor.telegram import send_with_budget
+from supervisor.i18n import t
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +52,17 @@ _DEFAULT_WORKER_START_METHOD = "fork" if sys.platform.startswith("linux") else "
 _WORKER_START_METHOD = str(os.environ.get("DRAGO_WORKER_START_METHOD", _DEFAULT_WORKER_START_METHOD) or _DEFAULT_WORKER_START_METHOD).strip().lower()
 if _WORKER_START_METHOD not in {"fork", "spawn", "forkserver"}:
     _WORKER_START_METHOD = _DEFAULT_WORKER_START_METHOD
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _notify_evolution_task_started() -> bool:
+    return _env_bool("DRAGO_EVOLUTION_NOTIFY_START", default=False)
 
 
 def _get_ctx():
@@ -166,7 +178,7 @@ def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple
             get_event_q().put(e)
     except Exception as e:
         import traceback
-        err_msg = f"⚠️ Error: {type(e).__name__}: {e}"
+        err_msg = t("direct_chat_error", error_class=type(e).__name__, error=str(e))
         append_jsonl(
             DRIVE_ROOT / "logs" / "supervisor.jsonl",
             {
@@ -251,7 +263,7 @@ def auto_resume_after_restart() -> None:
             threading.Thread(
                 target=handle_chat_direct,
                 args=(int(chat_id),
-                      "[auto-resume after restart] Continue your work. Read scratchpad and identity — they contain context of what you were doing.",
+                      "[автовосстановление после перезапуска] Продолжай работу. Прочитай scratchpad и identity: там контекст предыдущего шага.",
                       None),
                 daemon=True,
             ).start()
@@ -401,7 +413,11 @@ def _verify_worker_sha_after_spawn(events_offset: int, timeout_sec: float = 90.0
     if not ok and st.get("owner_chat_id"):
         send_with_budget(
             int(st["owner_chat_id"]),
-            f"⚠️ Worker SHA mismatch after spawn: expected {expected_sha[:8]}, got {(observed_sha or 'unknown')[:8]}",
+            t(
+                "worker_sha_mismatch",
+                expected=expected_sha[:8],
+                observed=(observed_sha or "unknown")[:8],
+            ),
         )
 
 
@@ -484,8 +500,8 @@ def assign_tasks() -> None:
                 # Find first suitable task (skip over-budget evolution tasks)
                 chosen_idx = None
                 for i, candidate in enumerate(PENDING):
-                    t = str(candidate.get("type") or "")
-                    if t == "evolution" and budget_remaining(load_state()) < EVOLUTION_BUDGET_RESERVE:
+                    candidate_type = str(candidate.get("type") or "")
+                    if candidate_type == "evolution" and budget_remaining(load_state()) < EVOLUTION_BUDGET_RESERVE:
                         continue
                     chosen_idx = i
                     break
@@ -507,11 +523,14 @@ def assign_tasks() -> None:
                 if task_type in ("evolution", "evolution_local", "review"):
                     st = load_state()
                     if st.get("owner_chat_id"):
-                        emoji = '🧬' if task_type in ("evolution", "evolution_local") else '🔎'
-                        send_with_budget(
-                            int(st["owner_chat_id"]),
-                            f"{emoji} {task_type.capitalize()} task {task['id']} started.",
-                        )
+                        should_notify = True
+                        if task_type in ("evolution", "evolution_local"):
+                            should_notify = _notify_evolution_task_started()
+                            msg = t("evolution_task_started", task_id=task["id"])
+                        else:
+                            msg = t("review_task_started", task_id=task["id"])
+                        if should_notify:
+                            send_with_budget(int(st["owner_chat_id"]), msg)
                 queue.persist_queue_snapshot(reason="assign_task")
 
 
@@ -579,8 +598,7 @@ def ensure_workers_healthy() -> None:
         if st.get("owner_chat_id"):
             send_with_budget(
                 int(st["owner_chat_id"]),
-                "⚠️ Frequent worker crashes. Multiprocessing workers disabled, "
-                "continuing in direct-chat mode (threading).",
+                t("crash_storm_direct_chat"),
             )
         # Kill all workers — direct chat via handle_chat_direct still works
         kill_workers()
