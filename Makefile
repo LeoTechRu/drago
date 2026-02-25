@@ -11,6 +11,10 @@ test:
 test-v:
 	python3 -m pytest tests/ -v --tb=long
 
+# Run syntax lint without external dependencies
+lint:
+	python3 -m compileall -q drago supervisor tests
+
 # Run codebase health check (requires drago importable)
 health:
 	python3 -c "from drago.review import compute_complexity_metrics; \
