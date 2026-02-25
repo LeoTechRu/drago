@@ -48,9 +48,31 @@ def init(repo_dir: pathlib.Path, drive_root: pathlib.Path, remote_url: str,
 # Git helpers
 # ---------------------------------------------------------------------------
 
-def git_capture(cmd: List[str]) -> Tuple[int, str, str]:
-    r = subprocess.run(cmd, cwd=str(REPO_DIR), capture_output=True, text=True)
-    return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+def git_capture(cmd: List[str], timeout: float = 15.0) -> Tuple[int, str, str]:
+    try:
+        r = subprocess.run(
+            cmd,
+            cwd=str(REPO_DIR),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+    except subprocess.TimeoutExpired as exc:
+        stdout = (
+            exc.stdout.decode(errors="replace")
+            if isinstance(exc.stdout, bytes)
+            else (exc.stdout or "")
+        )
+        stderr = (
+            exc.stderr.decode(errors="replace")
+            if isinstance(exc.stderr, bytes)
+            else (exc.stderr or "")
+        )
+        msg = f"git command timed out after {timeout:.1f}s"
+        if stderr:
+            msg = f"{msg}: {stderr.strip()}"
+        return 124, stdout.strip(), msg
 
 
 def ensure_repo_present() -> None:
