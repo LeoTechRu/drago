@@ -8,7 +8,7 @@
 A self-improving AI operations agent designed to assist and co-evolve with its owner under explicit safety constraints.
 Its goal is practical, legal, and reusable value creation with transparent decision-making and continuous adaptation.
 
-**Version:** 6.2.0 | [Landing Page](https://LeoTechRu.github.io/drago/)
+**Version:** 6.3.0 | [Landing Page](https://LeoTechRu.github.io/drago/)
 
 ---
 
