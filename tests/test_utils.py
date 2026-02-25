@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pathlib
 import sys
 
 import pytest
@@ -23,6 +24,11 @@ def test_run_cmd_raises_runtime_error_on_timeout():
 def test_run_cmd_raises_runtime_error_on_missing_command():
     with pytest.raises(RuntimeError, match="Command not found"):
         run_cmd(["__drago_nonexistent_cmd__"])
+
+
+def test_run_cmd_handles_pathlike_items_in_error_message():
+    with pytest.raises(RuntimeError, match="Command failed:"):
+        run_cmd([pathlib.Path(sys.executable), "-c", "import sys; sys.exit(3)"])
 
 
 def test_clip_text_respects_max_chars_for_small_limits():

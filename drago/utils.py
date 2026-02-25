@@ -179,23 +179,26 @@ def run_cmd(
     cwd: Optional[pathlib.Path] = None,
     timeout_sec: Optional[float] = 300.0,
 ) -> str:
+    if not cmd:
+        raise RuntimeError("Command must be non-empty")
+    cmd_list = [str(part) for part in cmd]
     try:
         res = subprocess.run(
-            cmd,
+            cmd_list,
             cwd=str(cwd) if cwd else None,
             capture_output=True,
             text=True,
             timeout=timeout_sec,
         )
     except FileNotFoundError as exc:
-        raise RuntimeError(f"Command not found: {cmd[0]}") from exc
+        raise RuntimeError(f"Command not found: {cmd_list[0]}") from exc
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
-            f"Command timed out after {timeout_sec}s: {' '.join(cmd)}"
+            f"Command timed out after {timeout_sec}s: {' '.join(cmd_list)}"
         ) from exc
     if res.returncode != 0:
         raise RuntimeError(
-            f"Command failed: {' '.join(cmd)}\n\nSTDOUT:\n{res.stdout}\n\nSTDERR:\n{res.stderr}"
+            f"Command failed: {' '.join(cmd_list)}\n\nSTDOUT:\n{res.stdout}\n\nSTDERR:\n{res.stderr}"
         )
     return res.stdout.strip()
 
