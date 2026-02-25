@@ -130,6 +130,8 @@ def append_jsonl(path: pathlib.Path, obj: Dict[str, Any]) -> None:
 
 def safe_relpath(p: str) -> str:
     p = p.replace("\\", "/").lstrip("/")
+    if not p.strip():
+        raise ValueError("Path must be non-empty.")
     if ".." in pathlib.PurePosixPath(p).parts:
         raise ValueError("Path traversal is not allowed.")
     return p

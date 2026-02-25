@@ -171,6 +171,13 @@ def test_safe_relpath_strips_leading_slash():
     assert not result.startswith("/")
 
 
+@pytest.mark.parametrize("raw_path", ["", "   "])
+def test_safe_relpath_rejects_empty(raw_path):
+    from drago.utils import safe_relpath
+    with pytest.raises(ValueError):
+        safe_relpath(raw_path)
+
+
 def test_tool_context_repo_path_rejects_symlink_escape(tmp_path):
     from drago.tools.registry import ToolContext
 
