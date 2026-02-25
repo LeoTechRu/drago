@@ -185,6 +185,8 @@ def run_cmd(
             text=True,
             timeout=timeout_sec,
         )
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Command not found: {cmd[0]}") from exc
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(
             f"Command timed out after {timeout_sec}s: {' '.join(cmd)}"

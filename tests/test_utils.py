@@ -20,6 +20,11 @@ def test_run_cmd_raises_runtime_error_on_timeout():
         run_cmd([sys.executable, "-c", "import time; time.sleep(1)"], timeout_sec=0.05)
 
 
+def test_run_cmd_raises_runtime_error_on_missing_command():
+    with pytest.raises(RuntimeError, match="Command not found"):
+        run_cmd(["__drago_nonexistent_cmd__"])
+
+
 def test_clip_text_respects_max_chars_for_small_limits():
     text = "x" * 500
 
